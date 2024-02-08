@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it as below."
+authors:
+  - family-names: Leegwater
+    given-names: Hanneke
+    orcid: https://orcid.org/0000-0001-6003-1544
+title: "Normalization strategies for lipidome data in cell line panels"
+version: 1.0.0
+date-released: 2024-02-08

@@ -1,0 +1,1139 @@
+---
+title: "All figures for normalization manuscript"
+author: "Hanneke Leegwater"
+date: "`r Sys.Date()`"
+output:   
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    df_print: paged
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = stringr::str_replace(inputFile, ".Rmd",paste0("_", stringr::str_remove_all(Sys.Date(),"-"),'.html'))) })
+---
+
+This script reproduces all figures in the manuscript. The data directory needs to point to the correct location where the Calculations script has created files.
+
+# Preparations
+
+## Load R libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(cowplot)
+library(pheatmap)
+library(ggvenn)
+library(svglite)
+source(here("code/functions/data_analysis_plots.R"))
+```
+
+## Define input and output directory
+
+```{r}
+data_dir <- here("manuscript/data_for_figures")
+#data_dir <- here("data/normalization_manuscript_files")
+
+output_dir <- here("manuscript", str_glue("figures_v{str_remove_all(Sys.Date(), '-')}"))
+print(output_dir)
+if(!dir.exists(output_dir)) dir.create(output_dir)
+```
+
+## Load all metadata
+
+```{r}
+# Sample metadata
+metadata <- read_csv(here(data_dir, "metadata.csv"),
+                    col_types = cols(batch_MSMS = col_factor(levels = c("1", 
+           "2", "3"))))
+ 
+print(dim(metadata))
+print(head(metadata))
+
+### Information on lipid classes
+lipid_info <- read_csv(here(data_dir, "lipid_info.csv"))
+
+print(head(lipid_info))
+print(dim(lipid_info))
+```
+
+## Define all colors used in the manuscript
+
+```{r}
+color_legend_morphology <- list(
+  "Epithelial-like" = "#FDE725FF", # scales::viridis_pal()(5)[5],
+  "Mesenchymal-like" = "#3B528BFF", # scales::viridis_pal()(5)[1],
+  "E" = "#FDE725FF", 
+  "M" = "#3B528BFF", 
+  "Round" = "#CB181D",
+  "Suspension" = "#5DC863FF",
+  "Unknown" = "grey"
+)
+
+color_legend_icc <- list(
+  "data-based" = "#0099FF", 
+  "biology-based" = "#FF9B2D", 
+  "not normalized" = "grey"
+)
+
+color_legend_measurement_modes <- list(mode = c(
+  "Positive" = "#F46E31",
+  "Negative" = "#001158",
+  "Switching" = "#A5B2E3"
+))
+
+color_legend_triglycerides <- list(
+  "triglyceride" = "#001158",
+  "other lipid class" = "#F46E31"
+)
+```
+
+## Define personal theme to use for all plots
+
+Adapted from tutorial: Harvard Chan Bioinformatics Core (HBC) with CC BY 4.0, <https://hbctraining.github.io/publication_perfect/>
+
+```{r}
+personal_theme <- function(){ 
+  theme_half_open(font_size = 10) +
+  theme(legend.position = "none") +
+  # White background
+   theme(plot.background = element_rect(fill = "white", color = NA))
+}
+```
+
+## Save plots as png, svg, eps, tiff and pdf
+
+Using the cowplot save_plot function but with multiple file types.
+
+```{r}
+save_as_png_svg_pdf <- function(figure_name, plot_object, base_height =3, base_width=NULL){
+  
+  for(file_extension in c(".svg", ".png", ".pdf", ".eps", ".tiff")){
+    save_plot(
+      here(output_dir, str_c(figure_name, file_extension)),
+      plot_object,
+      base_height = base_height,
+      base_width = base_width, dpi = 800)    
+  }
+}
+```
+
+# Main figures
+
+## Figure 1
+
+Figure 1. Variation in data is mostly influenced by median signal in a sample. 
+
+A PCA was calculated using log2 transformed, centered, and scaled data. (A) Morphology was not the basis for the observed separation in the PCA; epithelial-like (yellow), mesenchymal-like (blue), round (red), suspension (green), and unknown morphology (grey). (B) Example cell lines highlighted to show that replicates do not cluster. (C) Median detected signal for the sample drives separation in PC1, which explained 59% of total variation. (D) PC1 and log2 median signal per sample showed a strong correlation negative to each other (rs=-0.99). 
+
+### Load data
+
+```{r}
+load(here(data_dir, "pca_raw_data.RData"))
+medians_per_sample <- read_csv(here(data_dir, "medians_per_sample.csv"))
+```
+
+### Write functions
+
+```{r}
+plot_PCA_df <- function(pca_obj, metadata, color_metadata, legend = T,
+                        components = c("PC1","PC2")){
+  PC1_var <- round(pca_obj$prop_expl_var$X[[components[1]]], 2) *100
+  x_label <- str_glue("{components[1]} ({PC1_var}% expl. var)")
+  PC2_var <- round(pca_obj$prop_expl_var$X[[components[2]]],2) *100
+  y_label <- str_glue("{components[2]} ({PC2_var}% expl. var)")
+  df <- get_PCA_df(pca_obj) %>%
+    left_join(metadata, by = "Original_name") %>%
+    arrange(.data[[color_metadata]])
+  
+  p <- ggplot(df, aes(x = .data[[components[1]]], y = .data[[components[2]]],
+                      color = .data[[color_metadata]])) +
+    personal_theme() +
+    labs(x = x_label, y = y_label) +
+    theme(legend.position = ifelse(legend, "right", "none"))
+  
+  if(color_metadata != "Morphology"){
+    p <- p + geom_point()
+    } else{
+    p <- p + geom_point() + 
+      scale_color_manual(values = color_legend_morphology)
+  }
+  return(p)
+}
+
+plot_PCA_median <- function(pca_obj, metadata, color_metadata, legend = T){
+  # Turn mixomics pca object into data frame for ggplot
+  PC1_var <- round(pca_obj$prop_expl_var$X[["PC1"]], 2) *100
+  x_label <- str_glue("PC1 ({PC1_var}% expl. var)")
+  PC2_var <- round(pca_obj$prop_expl_var$X[["PC2"]],2) *100
+  y_label <- str_glue("PC2 ({PC2_var}% expl. var)")
+  
+  df <- get_PCA_df(pca_obj) %>%
+    left_join(metadata, by = "Original_name")
+  print(str_glue("Correlation between PC1 and median signal is: {cor(df[[color_metadata]], df$PC1)}"))
+  print(str_glue("Correlation between PC2 and median signal is: {cor(df[[color_metadata]], df$PC2)}"))
+  p <- ggplot(df, aes(x = PC1, y = PC2, 
+                      color = .data[[color_metadata]])) +
+    geom_point() +
+    personal_theme() +
+    scale_colour_gradient(name = "log2 median abundance", low = "#D9D9D9", high = "black") +
+    theme(legend.position = ifelse(legend, "right", "none")) +
+    labs(x = x_label, y = y_label) 
+  return(p)
+}
+```
+
+### Plot log2 transformed points
+
+```{r fig.height=2.6, fig.width=4}
+fig1a <- plot_PCA_df(pca_raw_data, metadata, "Morphology") +
+   scale_color_manual(values = color_legend_morphology)
+fig1a
+the_legend_1a <- get_legend(
+  plot_PCA_df(pca_raw_data, metadata, "Morphology") + 
+    guides(color = guide_legend(),
+           shape = FALSE) +
+    theme(legend.position = "right")
+)
+```
+
+### Plot replicates
+
+```{r}
+metadata <- metadata %>%   
+  mutate(is_specific_cell_line = factor(
+       ifelse(cell_line == "MDA-MB-231", "MDA-MB-231",
+       ifelse(cell_line == "MDA-MB-134VI", "MDA-MB-134VI",
+       ifelse(cell_line == "T47D", "T47D", 
+       ifelse(cell_line == "HCC2218", "HCC2218", "other")))),
+       levels = c("other", "HCC2218", "T47D", "MDA-MB-134VI", "MDA-MB-231")))
+
+
+fig1b <- plot_PCA_df(pca_raw_data, metadata, "is_specific_cell_line") +
+  scale_color_manual(values = list(
+    "MDA-MB-231" = "#3B528BFF",
+    "MDA-MB-134VI" = "#CB181D",
+    "T47D" = "#FDE725FF", 
+    "HCC2218" = "#5DC863FF",
+    "other" = "grey"
+  ))
+
+
+fig1b
+
+the_legend_1b <- get_legend(
+  fig1b + 
+    guides(color = guide_legend(),
+           shape = FALSE) +
+    theme(legend.position = "right")
+)
+```
+
+### Color by median signal
+
+```{r fig.height=2.8, fig.width=8}
+median_signal_per_sample <- dplyr::select(medians_per_sample, Original_name, log2median)
+fig1c <- plot_PCA_median(pca_raw_data, median_signal_per_sample, "log2median")
+fig1c
+
+the_legend_1def <- get_legend(
+  plot_PCA_median(pca_raw_data, median_signal_per_sample, "log2median") + 
+    guides(color = guide_legend(),
+           shape = FALSE) +
+    theme(legend.position = "bottom") +
+    labs(fill = "log2 median signal")
+)
+```
+
+Correlate PC1 to median signal
+
+```{r}
+plot_median_and_PC1 <- function(normalization_name){
+  df <- pca_raw_data
+  df <- df$variates$X %>% data.frame() %>%
+    rownames_to_column("Original_name") %>%
+    left_join(medians_per_sample, by = "Original_name") 
+  
+  cor_nr <- round(cor(df$PC1, df$log2median, method = "spearman"), 2)
+  print(str_c("Spearman correlation between PC1 and log2 median signal for ", normalization_name, " is: ",cor_nr))
+  
+  p <- df %>%
+    ggplot(aes(x = log2median, y = PC1)) + 
+    geom_point() +
+    personal_theme() + 
+    labs(x = "log2 median abundance", y = "PC1") +
+    geom_label(x = -1.4, 
+              y = max(df[["PC1"]]), 
+              label = str_glue("r[s] == {cor_nr}"),
+              label.size = NA, parse = T)
+  return(p)
+}
+
+fig1d <- plot_median_and_PC1("raw data")
+fig1d
+```
+
+### Write to file
+
+```{r fig.height=2, fig.width=8}
+all_plots_1 <- plot_grid(fig1a + theme(legend.position = "none"), 
+                         fig1b + theme(legend.position = "none"), 
+                         fig1c + theme(legend.position = "none"), 
+                         fig1d + theme(legend.position = "none"),
+                         labels = LETTERS[1:4],
+                         rel_widths = c(1,1,1,1.1),
+          nrow = 1)
+all_plots_1
+
+save_as_png_svg_pdf(
+  "Figure1",
+  all_plots_1,
+  base_height = 2,
+  base_width = 8)
+
+save_plot(
+  here(output_dir, "Figure1a_legend.png"),
+  the_legend_1a)
+
+save_plot(
+  here(output_dir, "Figure1b_legend.png"),
+  the_legend_1b)
+```
+
+## Figure 2
+
+Figure 2. Data-based normalizations improved similarity between biological replicates. 
+
+Distributions of intraclass correlations per lipid are calculated before and after normalization for (A) the entire panel of cell lines. Lipid density distributions per sample (B) before normalization, (C) after normalization by protein concentration or (D) after PQN normalization for the cell line panel. (E) Distributions of intraclass correlations per lipid are calculated before and after normalization for cell lines with similar morphologies. 
+
+### Load data
+
+```{r}
+# ICC calculations
+ICC_cell_lines_normalization_merged <- read_csv(here(data_dir, "ICC_cell_lines_normalization_merged.csv"))
+ICC_treatment_2DG_normalization_merged <- read_csv(here(data_dir, "ICC_treatment_2DG_normalization_merged.csv"))
+
+# Three normalizations
+not_normalized_Merged <- read_csv(here(data_dir, "data_normalized/cell_lines",
+  "cell_lines_merged_NotNormalized_log2Transformed_notScaled.csv"))
+bca_normalized_Merged <- read_csv(here(data_dir, "data_normalized/cell_lines",
+  "cell_lines_merged_BCANormalized_log2Transformed_notScaled.csv"))
+pqn_normalized_Merged <- read_csv(here(data_dir, "data_normalized/cell_lines",
+  "cell_lines_merged_PQNNormalized_log2Transformed_notScaled.csv"))
+```
+
+### ICC of cell line panel
+
+```{r}
+plot_ICC <- function(all_ICCs){
+  to_sort_by <- c("Not", "Prot conc.", "Cell count", "Sum", "Median", "PQN")
+
+  p_ICC_full <- all_ICCs %>%
+    pivot_longer(!lipid, names_to = "normalization", values_to = "ICC") %>%
+    
+    # Sort based on the normalization specified above
+    mutate(strategy = ifelse(str_detect(normalization, "Median|Sum|PQN"), "data-based",
+                               ifelse(str_detect(normalization, "Prot|Cell"), "biology-based", "not normalized")),
+           normalization = factor(normalization, levels = to_sort_by)) %>%
+    arrange(normalization) %>%
+    
+    # Build the plot
+    ggplot(aes(x = normalization, y = ICC, fill = strategy)) + 
+      geom_violin() +
+      geom_boxplot(position=position_dodge(1), width=0.2, fill = "white") +
+      personal_theme() +
+      labs(legend = "normalization type") +
+      scale_x_discrete(guide = guide_axis(angle = 30)) +
+      scale_y_continuous(limits = c(0, 1)) +
+      scale_fill_manual(values = color_legend_icc) +
+      labs(x = NULL)
+
+  return(p_ICC_full)
+}
+```
+
+```{r fig.height=2.6, fig.width=2.6}
+fig2a <- plot_ICC(ICC_cell_lines_normalization_merged)
+
+the_legend_2abc <- get_legend(
+  fig2a + 
+    guides(color = guide_legend(),
+           shape = FALSE) +
+    theme(legend.position = "right")
+)
+all_plots_2a <- plot_grid(fig2a, 
+  align = 'vh',
+  labels = c("A"),
+  hjust = -1,
+  nrow = 1
+)
+all_plots_2a
+```
+
+### Density plot examples
+
+```{r}
+make_sample_densityplot <- function(df, to_color){
+  p <- df %>%
+    pivot_longer(!Original_name, names_to = "lipid") %>%
+    ggplot(aes(x = value, group = Original_name)) +
+    geom_density(linetype="dashed", linewidth = 0.1, color = to_color) +
+    labs(x = "log2 lipid abundance") +
+    personal_theme()
+  return(p)
+}
+```
+
+```{r fig.height=2.6, fig.width=8}
+fig2b <- make_sample_densityplot(not_normalized_Merged, 
+                                 to_color = color_legend_icc[["not normalized"]])
+fig2c <- make_sample_densityplot(bca_normalized_Merged, 
+                                 to_color = color_legend_icc[["biology-based"]])
+fig2d <- make_sample_densityplot(pqn_normalized_Merged, 
+                                 to_color = color_legend_icc[["data-based"]])
+
+all_plots_2bcd <- plot_grid(fig2b, fig2c, fig2d,
+  align = 'vh',
+  labels = LETTERS[2:4],
+  hjust = -1,
+  nrow = 1
+)
+all_plots_2bcd
+```
+
+```{r fig.height=2.6, fig.width=8}
+fig2e <- plot_ICC(ICC_treatment_2DG_normalization_merged)
+
+all_plots_2e <- plot_grid(fig2e, 
+  align = 'vh',
+  labels = LETTERS[5],
+  hjust = -1,
+  nrow = 1
+)
+all_plots_2e
+```
+### Calculate nr of lipids with high ICC
+
+```{r}
+ICC_treatment_2DG_normalization_merged %>%
+  column_to_rownames("lipid") %>%
+  mutate(across(everything(), function(x) x > 0.7)) %>%
+  colSums() %>%
+  sort()
+
+ICC_cell_lines_normalization_merged %>%
+  column_to_rownames("lipid") %>%
+  mutate(across(everything(), function(x) x > 0.7)) %>%
+  colSums() %>%
+  sort()
+```
+
+### Write to file
+
+```{r fig.height=8, fig.width=8}
+plot_grid(all_plots_2a, all_plots_2bcd, all_plots_2e, ncol =1)
+
+save_as_png_svg_pdf(
+  "Figure2",
+  plot_grid(all_plots_2a, all_plots_2bcd, all_plots_2e, ncol =1),
+  base_height = 8,
+  base_width = 8)
+
+save_plot(
+  here(output_dir, "Figure2_legend.png"),
+  the_legend_2abc)
+```
+
+## Figure 3
+
+Figure 3. Lipid abundance distributions are not directly related to total protein concentration or cell count. 
+
+(A) Distribution of lipid abundances for 5 cell lines where biological replicates have the most similar total protein concentration with a standard deviation (sd) 0.00 -0.01 µg/µL, or (B) most different total protein concentrations with a sd 0.15 - 0.30 µg/µL. Distributions for cell counts with (C) minimum 0.11 - 0.18 million cells or (D) max for 1.7 to 2.1 million cells. Distributions are colored per cell morphology with epithelial-like (yellow), mesenchymal-like (blue), round (red), or suspension (green) morphology. Correlation between the two biology-based methods (E) or between cell count (F) or protein concentration (G) and log2 median sample abundance. rs: Spearman correlation coefficient
+
+### Load data
+
+```{r}
+sd_biological_measurements <- read_csv(here(data_dir, "sd_biological_measurements.csv"))
+raw_data_log2 <- read_csv(here(data_dir, "raw_data_log2.csv"))
+```
+
+### Show 5 cell lines with similar and different median signals.
+
+Plots partially based on <http://www.sthda.com/english/wiki/ggplot2-violin-plot-quick-start-guide-r-software-and-data-visualization>.
+
+```{r}
+plot_five_sample_distributions <- function(df, for_filter, max_variation = T){
+  
+  df <- df %>%
+    pivot_longer(!Original_name, names_to = "lipid", values_to = "value") %>%
+    left_join(metadata, by = "Original_name") %>%
+    filter(group %in% for_filter$group) %>%
+    left_join(for_filter, by = "group") %>%
+    # sort by morphology
+    mutate(Morphology = factor(Morphology, levels = names(color_legend_morphology)))
+  to_sort <- df %>% 
+    dplyr::select(group, Morphology) %>% arrange(Morphology) %>% unique()
+  df <- df %>%
+    mutate(group = factor(group, levels = to_sort$group))
+  
+  p <- df %>%
+    ggplot(aes(group = Original_name, x = group, y = value, fill = Morphology)) +
+    geom_violin() +
+    geom_boxplot(position=position_dodge(1), width=0.2, fill = "white") +
+    scale_fill_manual(values = color_legend_morphology) +
+    personal_theme() +
+    scale_x_discrete(guide = guide_axis(angle = 20)) +
+    scale_y_continuous(limits = c(-15,7)) +
+    labs(x = NULL, y = "log2 lipid abundance")
+  
+  return(p)
+}
+```
+
+```{r fig.height=3, fig.width=8}
+max_sd <- sd_biological_measurements %>%
+  slice_max(sd_protein_concentration_mg_per_mL, n = 5)
+
+min_sd <- sd_biological_measurements %>%
+  slice_min(sd_protein_concentration_mg_per_mL, n = 5)
+
+fig3a <- raw_data_log2 %>%
+  plot_five_sample_distributions(for_filter = min_sd, max_variation = F)
+  
+fig3b <- raw_data_log2 %>%
+  plot_five_sample_distributions(for_filter = max_sd, max_variation = T)
+
+the_legend_3ab <- get_legend(
+  fig3a + 
+    guides(color = guide_legend(),
+           shape = FALSE) +
+    theme(legend.position = "right")
+)
+all_plots_3ab <- plot_grid(fig3a, fig3b,
+  align = 'hv',
+  labels = c("A", "B"),
+  hjust = -1,
+  nrow = 1
+)
+all_plots_3ab
+```
+
+Repeat for cell count
+
+```{r fig.height=2.6, fig.width=8}
+max_sd <- sd_biological_measurements %>%
+  slice_max(sd_cell_nr_10E6, n = 5)
+
+min_sd <- sd_biological_measurements %>%
+  slice_min(sd_cell_nr_10E6, n = 5)
+
+fig3c <- raw_data_log2 %>%
+  plot_five_sample_distributions(for_filter = min_sd, max_variation = F)
+  
+fig3d <- raw_data_log2 %>%
+  plot_five_sample_distributions(for_filter = max_sd, max_variation = T)
+
+all_plots_3cd <- plot_grid(fig3c, fig3d,
+  align = 'hv',
+  labels = c("C", "D"),
+  hjust = -1,
+  nrow = 1
+)
+
+all_plots_3cd
+```
+
+### Add correlation plots
+
+Following advice on the labels on <https://stackoverflow.com/questions/60189086/how-to-make-superscripts-inside-glue>
+
+```{r fig.height=8, fig.width=8}
+plot_correlation <- function(df, x, y){
+  df <- df %>%
+    rename_with(~str_replace_all(.x, "_", " "))
+  cor_nr <- round(cor(df[[x]], df[[y]], method = "spearman"),2)
+  print(cor_nr)
+  
+  p <- df %>%
+    ggplot(aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    personal_theme() +
+    geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+    geom_label(x = 0.8*max(df[[x]]), 
+              y = max(df[[y]]), 
+              label= str_glue("r[s] == {cor_nr}"),
+              label.size = NA, parse = T)
+  return(p)
+}
+
+medians_per_sample <- rename(medians_per_sample,
+                             "median abundance" = "median",
+                             "log2 median abundance" = "log2median")
+
+all_plots_3efg <- plot_grid(
+  plot_correlation(medians_per_sample,
+                   x = "cell count (million)", 
+                   y = "prot conc. (mg/mL)"),
+  plot_correlation(medians_per_sample,
+                   x = "cell count (million)", 
+                   y = "log2 median abundance"),
+  plot_correlation(medians_per_sample,
+                   x = "prot conc. (mg/mL)", 
+                   y = "log2 median abundance"),
+  labels = c("E", "F", "G"),
+  rel_widths = c(1,1,1),
+nrow = 1
+)
+
+all_plots_3abcdefg <-
+  plot_grid(
+    all_plots_3ab, all_plots_3cd, all_plots_3efg,
+    nrow = 3
+  )
+all_plots_3abcdefg
+```
+
+### Write to file
+
+```{r fig.height=6, fig.width=8}
+save_as_png_svg_pdf(
+  "Figure3",
+  all_plots_3abcdefg,
+  base_height = 8,
+  base_width = 8)
+
+save_plot(
+  here(output_dir, "Figure3_legend.png"),
+  the_legend_3ab)
+```
+
+## Figure 4
+
+Figure 4 Correlation between class averages before normalization shows an overall agreement for structural lipids, but not for triglycerides and some signaling lipids. 
+
+Lipid abundances are log2 transformed, scaled, and centered. Class averages are calculated for cell line biological replicates before normalization, and Pearson correlation is used to correlate class averages over all samples. Rows and columns are clustered using hierarchical clustering with Euclidean distances and complete linkage.
+
+Following instructions on <https://slowkow.com/notes/pheatmap-tutorial/> and <https://biocorecrg.github.io/CRG_RIntroduction/pheatmap-function-from-the-pheatmap-package.html>
+
+```{r}
+class_average_correlations <- read_csv(here(data_dir, "class_average_correlations.csv")) %>%
+  rename("unknown" = "unknown.sphingolipid") %>%
+  rename("PG/BMP" = "PG_or_BMP") %>%
+  mutate(lipid_subclass = str_replace(lipid_subclass, "unknown.sphingolipid", "unknown")) %>%
+  mutate(lipid_subclass = str_replace(lipid_subclass, "PG_or_BMP", "PG/BMP")) %>%
+  column_to_rownames("lipid_subclass")
+
+min(class_average_correlations)
+max(class_average_correlations)
+
+# Sort dendogram to emphasize similarity
+library(dendsort)
+
+sort_hclust <- function(...) as.hclust(dendsort(as.dendrogram(...)))
+cluster_cols <- sort_hclust(hclust(dist(class_average_correlations)))
+plot(cluster_cols, xlab = "", sub = "")
+
+pheatmap(class_average_correlations, 
+         cluster_rows = cluster_cols,
+         cluster_cols = cluster_cols,
+         border_color = NA,
+         angle_col = "315")
+```
+
+### Write to file
+
+```{r}
+pheatmap(
+  class_average_correlations, 
+         cluster_rows = cluster_cols,
+         cluster_cols = cluster_cols,
+         border_color = NA,
+         angle_col = "315",
+  filename = here(output_dir, "Figure4.png"),
+  width = 8,
+  height = 5
+)
+
+pheatmap(
+  class_average_correlations, 
+         cluster_rows = cluster_cols,
+         cluster_cols = cluster_cols,
+         border_color = NA,
+         angle_col = "315",
+  filename = here(output_dir, "Figure4.pdf"),
+  width = 8,
+  height = 5
+)
+
+pheatmap(
+  class_average_correlations, 
+         cluster_rows = cluster_cols,
+         cluster_cols = cluster_cols,
+         border_color = NA,
+         angle_col = "315",
+  filename = here(output_dir, "Figure4.tiff"),
+  width = 8,
+  height = 5
+)
+```
+
+## Figure 5
+
+Figure 5 Differences in PE class average between morphologies are partially caused by normalization. 
+
+(A) Lipid class averages for TG and PE before normalization of samples show a positive correlation (r=0.65). (B) After PQN normalization using all lipids, a negative correlation is observed (r=-0.76). (C) After PQN normalization with only structural lipids, the previously observed correlation is rescued to an extent (r=0.31). (D) Lower TG class averages are observed for mesenchymal cell lines and (E) higher overall PE after normalization using all lipids. PQN using structural lipids keeps the lower overall TG abundance in (F) mesenchymal cell lines but (G) does not artificially increase PE abundance. Class averages are the mean per class of log2 transformed autoscaled lipid abundances. E=epithelial, M=mesenchymal. Correlations are Pearson correlations. 
+
+### Load data
+
+```{r}
+class_averages_by_structural_lipids <- read_csv(here(data_dir, "class_averages_by_structural_lipids.csv")) 
+class_averages_merged <- read_csv(here(data_dir, "class_averages_merged.csv")) 
+class_averages_rawdata <- read_csv(here(data_dir, "class_averages_TGPE_rawdata.csv")) 
+```
+
+### Violin plots
+
+```{r}
+violin_plot_lipid_class_average <- function(df){
+  p <- metadata %>%
+    dplyr::select(Original_name, Morphology) %>%
+    unique() %>%
+    right_join(df, by = "Original_name") %>%
+    filter(Morphology %in% c("Epithelial-like", "Mesenchymal-like")) %>%
+    mutate(Morphology = substr(Morphology, 1,1)) %>%
+  ggplot(aes(x = Morphology, y = class_mean, fill = Morphology)) +
+    geom_violin() +
+    geom_boxplot(position=position_dodge(1), width=0.2, fill = "white") +
+    scale_fill_manual(values = color_legend_morphology) +
+    personal_theme() +
+    labs(x = NULL, y = "class average")
+  return(p)
+}
+```
+
+```{r fig.height=6, fig.width=3}
+TG_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "TG") %>%
+  violin_plot_lipid_class_average()
+PE_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "PE") %>%
+  violin_plot_lipid_class_average()
+
+TG_merged <- class_averages_merged %>% filter(class == "TG") %>%
+  violin_plot_lipid_class_average()
+PE_merged <- class_averages_merged %>% filter(class == "PE") %>%
+  violin_plot_lipid_class_average()
+
+plot_grid(
+  plot_grid(TG_by_structural_lipids + ggtitle("by structural lipids"), PE_by_structural_lipids, align = "h"),
+  plot_grid(TG_merged + ggtitle("merged"), PE_merged, align = "h"),
+  nrow = 4 
+)
+```
+
+### Correlation plots
+
+```{r}
+# correlation between the class averages after normalization
+extract_TG_PE <- function(df){
+  df <- df %>%
+    filter(class %in% c("TG", "PE")) %>%
+    dplyr::select(Original_name, class, class_mean) %>%
+    pivot_wider(id_cols = Original_name, names_from = class, values_from = class_mean)
+  return(df)
+}
+calculate_TG_PE_cor <- function(df){
+  cor_nr <- round(cor(df$PE, df$TG), 2)
+  return(cor_nr)
+}
+
+correlation_plot_TGPE <- function(class_averages, show_cor = F){
+  cor_nr <- calculate_TG_PE_cor(class_averages)
+  print(cor_nr)
+  p <- class_averages %>%
+    ggplot(aes(x = PE, y = TG)) +
+      geom_point() +
+      personal_theme() +
+      geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") 
+  if(show_cor){
+    p <- p +
+      geom_label(x = max(class_averages$PE), 
+                y = max(class_averages$TG), 
+                hjust = 1, 
+                label= str_glue("r = {cor_nr}"),
+                label.size = NA)
+  }
+  return(p)
+}
+```
+
+```{r}
+# correlation between the class averages after structural lipid-based normalization
+
+class_averages <- extract_TG_PE(class_averages_by_structural_lipids)
+PE_TG_correlation_by_structural_lipids <- correlation_plot_TGPE(class_averages, show_cor = T)
+
+# correlation between the class averages after merged normalization
+
+class_averages <- extract_TG_PE(class_averages_merged)
+PE_TG_correlation_merged <- correlation_plot_TGPE(class_averages, show_cor = T)
+
+# correlation between the class averages before normalization
+class_averages <- extract_TG_PE(class_averages_rawdata)
+PE_TG_correlation_rawdata <- correlation_plot_TGPE(class_averages, show_cor = T)
+
+plot_grid(PE_TG_correlation_rawdata, PE_TG_correlation_merged, PE_TG_correlation_by_structural_lipids, nrow = 1)
+```
+
+```{r fig.height=3, fig.width=6}
+all_plots_5 <- plot_grid(
+  plot_grid(PE_TG_correlation_rawdata,
+            PE_TG_correlation_merged, PE_TG_correlation_by_structural_lipids,
+            #PE_no_TG + labs(y = "PE"),
+            labels = LETTERS[1:3], nrow = 1),
+  plot_grid(TG_merged + labs(y = "TG"), 
+            PE_merged + labs(y = "PE"), 
+            TG_by_structural_lipids + labs(y = "TG"), 
+            PE_by_structural_lipids + labs(y = "PE"),
+            labels = LETTERS[4:7], nrow = 1),
+  align = 'v',
+  hjust = -0.5,
+  nrow = 2
+)
+all_plots_5
+```
+
+### Write to file
+
+```{r fig.height=4.5, fig.width = 8}
+all_plots_5
+save_as_png_svg_pdf(
+  "Figure5",
+  all_plots_5,
+  base_height = 4,
+  base_width = 8)
+```
+
+## Figure 6
+
+Figure 6 Correlation of PCs after data transformation shows similar results. 
+
+The (A) first, (B) second, and (C) third principal components after log2 or cube root transformation for lipids measured in cell lines show similar contributions of individual lipids. Grey represents the x=y. Each dot is the loading value of a lipid. Lipid classes are represented in different colors. Lipid abundances were scaled using autoscaling before performing PCA. (D) Overlap of differential abundant lipids between epithelial and mesenchymal morphologies without transformation or after log2 or cube root transformation.
+
+### Load data
+
+```{r}
+pqn_data_log2 <- read_csv(here(data_dir, "pqn_data_log2.csv")) %>% column_to_rownames("group")
+pqn_data_cuberoot <- read_csv(here(data_dir, "pqn_data_cuberoot.csv")) %>% column_to_rownames("group")
+```
+
+### Plot PCA loadings
+
+```{r}
+make_comparison_plot <- function(PCA_comparison, x, y, multiplyPC){
+  p <- PCA_comparison %>%
+    left_join(lipid_info, by = c("lipid" = "internal_identifiers")) %>%
+    ggplot(aes(x = .data[[x]], y = .data[[y]], color = class)) +
+    geom_point() +
+    personal_theme() +
+    scale_color_viridis_d(option = "H") +
+    labs(x = str_replace_all(x, "_", " "), 
+         y = str_replace_all(y, "_", " ")) +
+    geom_abline(slope = 1*multiplyPC, color = "grey")
+  return(p)
+}
+
+plot_loadings <- function(pca_log2, pca_cuberoot, show_positivePC1 = T, show_positivePC2 = T, 
+                          plot_PC3 = F, show_positivePC3 = T){
+  # Set by hand whether I want to flip a PC axis
+  multiplyPC1 <- ifelse(show_positivePC1, 1, -1)
+  multiplyPC2 <- ifelse(show_positivePC2, 1, -1)
+  
+  # Plot correlation between loading values
+  PCA_comparison <- full_join(
+    data.frame(pca_log2$loadings$X) %>% rownames_to_column("lipid"),
+    data.frame(pca_cuberoot$loadings$X) %>% rownames_to_column("lipid"),
+    by = "lipid",
+    suffix = c("_log2", "_cuberoot")
+  )
+  
+  # Compare correlation between first principal components for both modes
+  p_pca1 <- make_comparison_plot(PCA_comparison, x = "PC1_log2", y = "PC1_cuberoot", multiplyPC1)
+  
+  # Compare correlation between second principal components for both modes
+  p_pca2 <- make_comparison_plot(PCA_comparison, x = "PC2_log2", y = "PC2_cuberoot", multiplyPC2)
+  
+  if(plot_PC3){
+    multiplyPC3 <- ifelse(show_positivePC3, 1, -1)
+    # Compare correlation between second principal components for both modes
+    p_pca3 <- make_comparison_plot(PCA_comparison, x = "PC3_log2", y = "PC3_cuberoot", multiplyPC3)
+    return(list(p_pca1, p_pca2, p_pca3))
+  }else{
+    return(list(p_pca1, p_pca2))
+  }
+}
+```
+
+```{r}
+pca_log2 <- mixOmics::pca(pqn_data_log2, scale = F, ncomp = 3)
+pca_cuberoot <- mixOmics::pca(pqn_data_cuberoot, scale = F, ncomp = 3)
+print(str_c("Overlapping nr of max lipids in PC1 is ", 
+  intersect(
+    pca_log2$loadings$X %>% data.frame() %>% arrange(desc(abs(PC1))) %>% rownames() %>% head(10),
+    pca_cuberoot$loadings$X %>% data.frame() %>% arrange(desc(abs(PC1))) %>% rownames() %>% head(10)) %>%
+  length()))
+pca_plots <- plot_loadings(pca_log2, pca_cuberoot, show_positivePC1 = T, show_positivePC2 = F,
+                           plot_PC3 = T, show_positivePC3 = F)
+
+all_plots <- plot_grid(
+  pca_plots[[1]] + theme(legend.position = "none"), 
+  pca_plots[[2]] + theme(legend.position = "none"),
+  pca_plots[[3]] + theme(legend.position = "none"),
+  align = 'vh',
+  labels = LETTERS[1:3],
+  hjust = -1,
+  nrow = 1
+)
+
+all_plots
+```
+
+### Venn diagram after differential analysis
+
+#### Load data
+
+```{r}
+load(here(data_dir, "venn_diagram_differential_lipids.RData"))
+```
+
+```{r}
+venn_diagram <- ggvenn(venn_diagram_differential_lipids, 
+       show_percentage = F, fill_alpha = 0,
+       set_name_size = 3, text_size = 3.5) +
+  theme(plot.background = element_rect(fill = NA, color = NA))
+venn_diagram
+```
+
+### Combine plots
+
+```{r fig.height=2, fig.width=8}
+all_plots_6 <- plot_grid(
+  pca_plots[[1]] + theme(legend.position = "none"), 
+  pca_plots[[2]] + theme(legend.position = "none"), 
+  pca_plots[[3]] + theme(legend.position = "none"), 
+  venn_diagram, 
+  labels = LETTERS[1:4],
+  rel_heights = c(1,1,1,0.5),
+  #hjust = -1,
+  nrow = 1
+)
+
+all_plots_6
+```
+
+### Write to file
+
+```{r fig.height=2, fig.width=8}
+save_as_png_svg_pdf(
+  "Figure6",
+  all_plots_6,
+  base_height = 2,
+  base_width = 8)
+```
+
+# Supplementary figures
+
+## Supplementary Figure 1
+
+### Load data
+
+```{r}
+# Deviating replicate in TG mode
+comparison_deviating_replicate_df <- read_csv(here(data_dir, "comparison_deviating_replicate_df.csv"))
+head(comparison_deviating_replicate_df)
+table(comparison_deviating_replicate_df$is_triglyceride)
+```
+
+A figure showing that one replicate deviates in TG mode for the treatment study.
+
+```{r}
+plot_tg <- function(col_name, replicate_x, replicate_y){
+  df <- comparison_deviating_replicate_df %>%
+    dplyr::select(biological_replicate, lipid, all_of(col_name), class, is_triglyceride) %>%
+    pivot_wider(names_from = biological_replicate, values_from = col_name)
+  
+  p <- df %>%
+    ggplot(aes(x = !!as.name(replicate_x), y = !!as.name(replicate_y), color = is_triglyceride)) +
+    geom_point() +
+    personal_theme() +
+    theme(text = element_text(size = 16), 
+          plot.caption = element_text(size = 20, hjust = 0.5)
+          ) +
+    geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed") +
+    scale_color_manual(values = color_legend_triglycerides)
+  return(p)
+}
+```
+
+```{r fig.height=2.6, fig.width=8}
+all_plots_sup1 <- plot_grid(
+  plot_tg("log2_abundance", "replicate 1", "replicate 2"),
+  plot_tg("log2_abundance", "replicate 1", "replicate 3"),
+  plot_tg("log2_abundance", "replicate 2", "replicate 3"),
+  
+  align = 'vh',
+  labels = LETTERS[1:3],
+  hjust = -1,
+  nrow = 1
+)
+all_plots_sup1
+
+the_legend_sup1 <- get_legend(
+  plot_tg("log2_abundance", "replicate 1", "replicate 2") + 
+    guides(color = guide_legend(nrow = 1),
+           shape = FALSE) +
+    theme(legend.position = "right")
+)
+
+```
+
+### Write to file
+
+```{r fig.height=8, fig.width=8}
+height <- 2.6
+width <- 8
+save_as_png_svg_pdf(
+  "SupplementaryFigure1",
+  all_plots_sup1,
+  base_height = height,
+  base_width = width)
+
+save_plot(
+  here(output_dir, "SupplementaryFigure1_legend.png"),
+  the_legend_sup1)
+```
+
+## Supplementary Figure 2
+
+ICCs after log2 or cube root transformation
+
+```{r}
+ICC_cell_lines_transformation <- read_csv(here(data_dir, "ICC_cell_lines_transformation.csv"))
+```
+
+```{r}
+plot_ICC <- function(all_ICCs){
+  to_sort_by <- c("not", "log2", "cuberoot")
+
+  p_ICC_full <- all_ICCs %>%
+    pivot_longer(!lipid, names_to = "transformation", values_to = "ICC") %>%
+    # Sort based on the order specified above
+    mutate(transformation = factor(transformation, levels = to_sort_by)) %>%
+    arrange(transformation) %>%
+    
+    # Build the plot
+    ggplot(aes(x = transformation, y = ICC)) + 
+      geom_violin(fill = "grey80") +
+      geom_boxplot(position=position_dodge(1), width=0.2, fill = "white") +
+      personal_theme() +
+      scale_x_discrete(guide = guide_axis(angle = 30)) +
+      scale_y_continuous(limits = c(0, 1)) +
+      labs(x = NULL)
+
+  return(p_ICC_full)
+}
+plot_ICC(ICC_cell_lines_transformation)
+
+plot_correlation_log2_cuberoot <- ICC_cell_lines_transformation %>%
+  ggplot(aes(x = log2, y = cuberoot)) +
+    geom_point() +
+    personal_theme() +
+    geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed")
+plot_correlation_log2_cuberoot
+```
+
+```{r fig.height=2.6, fig.width=8}
+
+all_plots_sup2 <- plot_grid(
+  plot_ICC(ICC_cell_lines_transformation),
+  plot_correlation_log2_cuberoot,
+  align = 'vh',
+  labels = c("A", "B"),
+  hjust = -1,
+  nrow = 1,
+  rel_widths = c(2,1)
+)
+all_plots_sup2
+```
+
+### Write to file
+
+```{r fig.height=2.6, fig.width=8}
+save_as_png_svg_pdf(
+  "SupplementaryFigure2",
+  all_plots_sup2,
+  base_height = 2.6,
+  base_width = 8
+)
+```
+
+## Supplementary Figure 3
+
+```{r fig.height=3.15, fig.width=6.4}
+BT549_density_info <- read_csv(here(data_dir, "BT549_density_info.csv")) %>%
+  rename(replicate = biological_replicate)
+```
+
+```{r fig.height=3.15, fig.width=6.4}
+plot_BT549_density_info <- function(df,y_label = F){
+  df <- mutate(df, normalization = as.factor(str_replace(normalization, "Normalized", " normalized"))) %>%
+    mutate(replicate = factor(replicate))
+  p1 <- df %>%
+    filter(transformation == "log2Transformed") %>%
+  ggplot(aes(x = value, color = replicate)) + geom_density() +
+    facet_grid(~ normalization, scales = "free") +
+    personal_theme() +
+    theme(strip.background =element_rect(fill="white")) +
+    labs(x = NULL, y = NULL)
+  
+  p2 <- df %>%
+    filter(transformation != "log2Transformed") %>%
+  ggplot(aes(x = value, color = replicate)) + geom_density() +
+    facet_grid(~ normalization, scales = "free") +
+    personal_theme() +
+    theme(strip.text = element_blank()) +
+    labs(x = NULL, y = NULL)
+  if(y_label){
+    p1 <- p1 + labs(x = NULL, y = "log2 transformed")
+    p2 <- p2 + labs(x = NULL, y = "cube root transformed")
+  }
+  return(plot_grid(p1, p2, nrow = 2, align = "vh"))
+}
+p_sup3 <- BT549_density_info %>% 
+  plot_BT549_density_info(y_label = T)
+```
+
+```{r fig.height=3.15, fig.width=6.4}
+all_plots_sup3 <- plot_grid(
+  p_sup3,
+  align = 'vh',
+  hjust = -1,
+  nrow = 1
+)
+
+all_plots_sup3
+```
+
+### Write to file
+
+```{r fig.height=3.15, fig.width=6.4}
+save_as_png_svg_pdf(
+  "SupplementaryFigure3",
+  all_plots_sup3 + theme(plot.background = element_rect(fill = "white", color = "white")),
+  base_height = 3.15,
+  base_width = 6.4)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
