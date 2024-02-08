@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/754549889.svg)](https://zenodo.org/doi/10.5281/zenodo.10635384)
+
 # Leegwater - Normalization strategies for lipidome data in cell line panels
 
 Code and example dataset to generate figures for "Normalization strategies for lipidome data in cell line panels" (Leegwater et al. submitted)
