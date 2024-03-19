@@ -106,7 +106,7 @@ Using the cowplot save_plot function but with multiple file types.
 
 ```{r}
 save_as_png_svg_pdf <- function(figure_name, plot_object, base_height =3, base_width=NULL){
-  
+  plot_object <- plot_object + theme(plot.background = element_rect(fill = "white", color = NA))
   for(file_extension in c(".svg", ".png", ".pdf", ".eps", ".tiff")){
     save_plot(
       here(output_dir, str_c(figure_name, file_extension)),
@@ -362,7 +362,7 @@ the_legend_2abc <- get_legend(
 )
 all_plots_2a <- plot_grid(fig2a, 
   align = 'vh',
-  labels = c("A"),
+  labels = LETTERS[1],
   hjust = -1,
   nrow = 1
 )
@@ -510,7 +510,7 @@ the_legend_3ab <- get_legend(
 )
 all_plots_3ab <- plot_grid(fig3a, fig3b,
   align = 'hv',
-  labels = c("A", "B"),
+  labels = LETTERS[1:2],
   hjust = -1,
   nrow = 1
 )
@@ -534,7 +534,7 @@ fig3d <- raw_data_log2 %>%
 
 all_plots_3cd <- plot_grid(fig3c, fig3d,
   align = 'hv',
-  labels = c("C", "D"),
+  labels = LETTERS[3:4],
   hjust = -1,
   nrow = 1
 )
@@ -579,7 +579,7 @@ all_plots_3efg <- plot_grid(
   plot_correlation(medians_per_sample,
                    x = "prot conc. (mg/mL)", 
                    y = "log2 median abundance"),
-  labels = c("E", "F", "G"),
+  labels = LETTERS[5:7],
   rel_widths = c(1,1,1),
 nrow = 1
 )
@@ -632,48 +632,68 @@ sort_hclust <- function(...) as.hclust(dendsort(as.dendrogram(...)))
 cluster_cols <- sort_hclust(hclust(dist(class_average_correlations)))
 plot(cluster_cols, xlab = "", sub = "")
 
-pheatmap(class_average_correlations, 
+fig4a <- pheatmap(class_average_correlations, 
          cluster_rows = cluster_cols,
          cluster_cols = cluster_cols,
          border_color = NA,
          angle_col = "315")
+fig4a
+```
+
+Include correlation of raw data not transformed sums of all structural lipids.
+
+```{r}
+plot_correlation_sums <- function(df, x, y){
+  df <- df %>%
+    rename_with(~str_replace_all(.x, "_", " "))
+  cor_nr <- round(cor(df[[x]], df[[y]], method = "spearman"),2)
+  print(cor_nr)
+  
+  p <- df %>%
+    ggplot(aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    personal_theme() +
+    #geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+    geom_label(x = 0.6*max(df[[x]]), 
+              y = 0.95*max(df[[y]]), 
+              label= str_glue("r[s] == {cor_nr}"),
+              label.size = NA, parse = T)
+  return(p)
+}
+```
+
+
+```{r fig.height=5, fig.width=3}
+sums_of_SL_and_TGs <- read_csv(here(data_dir, "rawdata_sums_of_structural_lipids_and_TGs.csv")) %>%
+  left_join(metadata, by = "Original_name") %>%
+  rename("cell count (million)" = cell_nr_10E6)
+head(sums_of_SL_and_TGs)
+
+fig4b <- sums_of_SL_and_TGs %>%
+  plot_correlation_sums(x = "cell count (million)", y = "structural lipid sum")
+
+fig4c <- sums_of_SL_and_TGs %>%
+  plot_correlation_sums(x = "cell count (million)", y = "TG sum")
+
+plot_grid(fig4b, fig4c,ncol = 1)
+```
+
+```{r fig.height=5, fig.width=8}
+all_plots_4 <- plot_grid(fig4a$gtable, 
+          plot_grid(fig4b, fig4c,
+                   ncol= 1, labels=LETTERS[2:3]),
+          nrow = 1, 
+          labels = c(LETTERS[1],""),
+          rel_widths = c(0.7,0.3)
+)
+all_plots_4
 ```
 
 ### Write to file
 
 ```{r}
-pheatmap(
-  class_average_correlations, 
-         cluster_rows = cluster_cols,
-         cluster_cols = cluster_cols,
-         border_color = NA,
-         angle_col = "315",
-  filename = here(output_dir, "Figure4.png"),
-  width = 8,
-  height = 5
-)
-
-pheatmap(
-  class_average_correlations, 
-         cluster_rows = cluster_cols,
-         cluster_cols = cluster_cols,
-         border_color = NA,
-         angle_col = "315",
-  filename = here(output_dir, "Figure4.pdf"),
-  width = 8,
-  height = 5
-)
-
-pheatmap(
-  class_average_correlations, 
-         cluster_rows = cluster_cols,
-         cluster_cols = cluster_cols,
-         border_color = NA,
-         angle_col = "315",
-  filename = here(output_dir, "Figure4.tiff"),
-  width = 8,
-  height = 5
-)
+save_as_png_svg_pdf("Figure4", all_plots_4,
+                    base_height = 5, base_width = 8)
 ```
 
 ## Figure 5
@@ -711,9 +731,9 @@ violin_plot_lipid_class_average <- function(df){
 ```
 
 ```{r fig.height=6, fig.width=3}
-TG_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "TG") %>%
+TG_rawdata <- class_averages_rawdata %>% filter(class == "TG") %>%
   violin_plot_lipid_class_average()
-PE_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "PE") %>%
+PE_rawdata <- class_averages_rawdata %>% filter(class == "PE") %>%
   violin_plot_lipid_class_average()
 
 TG_merged <- class_averages_merged %>% filter(class == "TG") %>%
@@ -721,10 +741,16 @@ TG_merged <- class_averages_merged %>% filter(class == "TG") %>%
 PE_merged <- class_averages_merged %>% filter(class == "PE") %>%
   violin_plot_lipid_class_average()
 
+TG_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "TG") %>%
+  violin_plot_lipid_class_average()
+PE_by_structural_lipids <- class_averages_by_structural_lipids %>% filter(class == "PE") %>%
+  violin_plot_lipid_class_average()
+
 plot_grid(
-  plot_grid(TG_by_structural_lipids + ggtitle("by structural lipids"), PE_by_structural_lipids, align = "h"),
+  plot_grid(TG_rawdata + ggtitle("raw data"), PE_rawdata, align = "h"),
   plot_grid(TG_merged + ggtitle("merged"), PE_merged, align = "h"),
-  nrow = 4 
+  plot_grid(TG_by_structural_lipids + ggtitle("by structural lipids"), PE_by_structural_lipids, align = "h"),
+  nrow = 3
 )
 ```
 
@@ -764,7 +790,7 @@ correlation_plot_TGPE <- function(class_averages, show_cor = F){
 }
 ```
 
-```{r}
+```{r fig.height=3, fig.width=6}
 # correlation between the class averages after structural lipid-based normalization
 
 class_averages <- extract_TG_PE(class_averages_by_structural_lipids)
@@ -782,20 +808,23 @@ PE_TG_correlation_rawdata <- correlation_plot_TGPE(class_averages, show_cor = T)
 plot_grid(PE_TG_correlation_rawdata, PE_TG_correlation_merged, PE_TG_correlation_by_structural_lipids, nrow = 1)
 ```
 
-```{r fig.height=3, fig.width=6}
+```{r fig.height=5, fig.width=6}
 all_plots_5 <- plot_grid(
   plot_grid(PE_TG_correlation_rawdata,
-            PE_TG_correlation_merged, PE_TG_correlation_by_structural_lipids,
-            #PE_no_TG + labs(y = "PE"),
+            PE_TG_correlation_merged, 
+            PE_TG_correlation_by_structural_lipids,
             labels = LETTERS[1:3], nrow = 1),
-  plot_grid(TG_merged + labs(y = "TG"), 
-            PE_merged + labs(y = "PE"), 
+  plot_grid(TG_rawdata + labs(y = "TG"), 
+            TG_merged + labs(y = "TG"), 
             TG_by_structural_lipids + labs(y = "TG"), 
+            labels = LETTERS[4:6], nrow = 1),
+  plot_grid(PE_rawdata + labs(y = "PE"), 
+            PE_merged + labs(y = "PE"), 
             PE_by_structural_lipids + labs(y = "PE"),
-            labels = LETTERS[4:7], nrow = 1),
+            labels = LETTERS[7:9], nrow = 1),
   align = 'v',
   hjust = -0.5,
-  nrow = 2
+  nrow = 3
 )
 all_plots_5
 ```
@@ -836,7 +865,7 @@ make_comparison_plot <- function(PCA_comparison, x, y, multiplyPC){
     scale_color_viridis_d(option = "H") +
     labs(x = str_replace_all(x, "_", " "), 
          y = str_replace_all(y, "_", " ")) +
-    geom_abline(slope = 1*multiplyPC, color = "grey")
+    geom_abline(slope = 1*multiplyPC, color = "black", linetype = "dashed")
   return(p)
 }
 
@@ -942,73 +971,35 @@ save_as_png_svg_pdf(
 
 ## Supplementary Figure 1
 
-### Load data
+```{r fig.height=2.6, fig.width=8}
+sums_of_SL_and_TGs <-  sums_of_SL_and_TGs %>%
+  rename("prot conc. (mg/mL)" = corrected_conc_mg_per_mL)
+head(sums_of_SL_and_TGs)
 
-```{r}
-# Deviating replicate in TG mode
-comparison_deviating_replicate_df <- read_csv(here(data_dir, "comparison_deviating_replicate_df.csv"))
-head(comparison_deviating_replicate_df)
-table(comparison_deviating_replicate_df$is_triglyceride)
-```
+sup1a <- sums_of_SL_and_TGs %>%
+  plot_correlation_sums(x = "prot conc. (mg/mL)", y = "structural lipid sum")
 
-A figure showing that one replicate deviates in TG mode for the treatment study.
+sup1b <- sums_of_SL_and_TGs %>%
+  plot_correlation_sums(x = "prot conc. (mg/mL)", y = "TG sum")
 
-```{r}
-plot_tg <- function(col_name, replicate_x, replicate_y){
-  df <- comparison_deviating_replicate_df %>%
-    dplyr::select(biological_replicate, lipid, all_of(col_name), class, is_triglyceride) %>%
-    pivot_wider(names_from = biological_replicate, values_from = col_name)
-  
-  p <- df %>%
-    ggplot(aes(x = !!as.name(replicate_x), y = !!as.name(replicate_y), color = is_triglyceride)) +
-    geom_point() +
-    personal_theme() +
-    theme(text = element_text(size = 16), 
-          plot.caption = element_text(size = 20, hjust = 0.5)
-          ) +
-    geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed") +
-    scale_color_manual(values = color_legend_triglycerides)
-  return(p)
-}
+plot_grid(sup1a, sup1b, 
+            align = 'vh', 
+            labels = LETTERS[1:2],
+            nrow = 1)
 ```
 
 ```{r fig.height=2.6, fig.width=8}
-all_plots_sup1 <- plot_grid(
-  plot_tg("log2_abundance", "replicate 1", "replicate 2"),
-  plot_tg("log2_abundance", "replicate 1", "replicate 3"),
-  plot_tg("log2_abundance", "replicate 2", "replicate 3"),
-  
-  align = 'vh',
-  labels = LETTERS[1:3],
-  hjust = -1,
-  nrow = 1
-)
-all_plots_sup1
-
-the_legend_sup1 <- get_legend(
-  plot_tg("log2_abundance", "replicate 1", "replicate 2") + 
-    guides(color = guide_legend(nrow = 1),
-           shape = FALSE) +
-    theme(legend.position = "right")
-)
-
-```
-
-### Write to file
-
-```{r fig.height=8, fig.width=8}
-height <- 2.6
-width <- 8
 save_as_png_svg_pdf(
   "SupplementaryFigure1",
-  all_plots_sup1,
-  base_height = height,
-  base_width = width)
-
-save_plot(
-  here(output_dir, "SupplementaryFigure1_legend.png"),
-  the_legend_sup1)
+  plot_grid(sup1a, sup1b, 
+            align = 'vh', 
+            labels = LETTERS[1:2],
+            nrow = 1),
+  base_height = 2.6,
+  base_width = 8
+  )
 ```
+
 
 ## Supplementary Figure 2
 

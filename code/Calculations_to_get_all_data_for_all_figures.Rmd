@@ -370,6 +370,30 @@ write_csv(subclass_averages_transformed_scaled,
           here(output_dir, "class_average_correlations.csv"))
 ```
 
+## Sum of structural lipids in raw data
+
+```{r}
+sums_of_structural_lipids <- raw_data %>% 
+      pivot_longer(!Original_name, names_to = "internal_identifiers", values_to = "value") %>%
+      left_join(dplyr::select(lipid_info, internal_identifiers, class), by = "internal_identifiers") %>%
+      filter(class %in% c("PI", "PE", "PC", "PS", "SM")) %>%
+      group_by(Original_name) %>%
+      summarise(structural_lipid_sum = sum(value)) %>%
+      ungroup()
+
+sums_of_TGs <- raw_data %>% 
+      pivot_longer(!Original_name, names_to = "internal_identifiers", values_to = "value") %>%
+      left_join(dplyr::select(lipid_info, internal_identifiers, class), by = "internal_identifiers") %>%
+      filter(class == "TG") %>%
+      group_by(Original_name) %>%
+      summarise(TG_sum = sum(value)) %>%
+      ungroup()
+
+sums_of_structural_lipids %>%
+  inner_join(sums_of_TGs, by = "Original_name") %>%
+  write_csv(here(output_dir, "rawdata_sums_of_structural_lipids_and_TGs.csv"))
+```
+
 # Figure 5
 
 Figure 5 Differences in PE class average between morphologies are partially caused by normalization.
@@ -569,38 +593,6 @@ venn_diagram_differential_lipids <- lapply(list_of_all_lipids, rownames)
 save(venn_diagram_differential_lipids, file = here(output_dir, "venn_diagram_differential_lipids.RData"))
 ```
 
-# Supplementary Figure 1
-
-Previous version also contained cell count normalization (aligns everything but TG) and PQN normalized (biased towards TG). Can be added to code below if needed.
-
-```{r}
-get_one_sample <- function(df, col_name, sample_group){
-  df <- df %>%
-    pivot_longer(!Original_name, names_to = "lipid", values_to = col_name) %>%
-    left_join(metadata, by ="Original_name") %>% 
-    filter(group == sample_group) %>%
-    dplyr::select(biological_replicate, lipid, all_of(col_name))
-  return(df)
-}
-
-comparison_deviating_replicate_df <- raw_data_treatment_2DG_allreps %>%
-  replace_missing_values_by_10percent() %>%
-  log2transform_lipidomics() %>%
-  get_one_sample("log2_abundance", "MDA-MB-231_ctrl-0")
-
-dim(comparison_deviating_replicate_df)
-
-comparison_deviating_replicate_df <- comparison_deviating_replicate_df %>%
-  left_join(dplyr::select(lipid_info, internal_identifiers, class), 
-            by = c("lipid" = "internal_identifiers"))
-
-# Emphasize triglycerides in separate column
-comparison_deviating_replicate_df <- comparison_deviating_replicate_df %>%
-  mutate(is_triglyceride = ifelse(class == "TG", "triglyceride", "other lipid class")) %>% 
-  mutate(biological_replicate = str_c("replicate", biological_replicate, sep = " "))
-
-write_csv(comparison_deviating_replicate_df, here(output_dir, "comparison_deviating_replicate_df.csv"), na = "")
-```
 
 # Supplementary Figure 2
 
@@ -621,7 +613,6 @@ dim(ICC_cell_lines_transformation)
 head(ICC_cell_lines_transformation)
 
 ggplot(ICC_cell_lines_transformation, aes(x = log2, y = cuberoot)) + geom_point() + geom_abline(slope = 1)
-# temp <- ICC_cell_lines_transformation
 write_csv(rownames_to_column(ICC_cell_lines_transformation, "lipid"), file = here(output_dir, "ICC_cell_lines_transformation.csv"))
 ```
 
