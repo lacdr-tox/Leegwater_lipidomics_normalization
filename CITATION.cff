@@ -3,7 +3,15 @@ message: "If you use this code, please cite it as below."
 authors:
   - family-names: Leegwater
     given-names: Hanneke
+    affiliation: Leiden University
     orcid: https://orcid.org/0000-0001-6003-1544
 title: "Normalization strategies for lipidome data in cell line panels"
-version: 1.0.0
-date-released: 2024-02-08
+version: 1.2.0
+date-released: 2024-12-03
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.10635384
+abstract: |-
+  Code to generate figures for "Normalization strategies for lipidome data in 
+  cell line panels" (Leegwater et al. 2024)
+license: MIT

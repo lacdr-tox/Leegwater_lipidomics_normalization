@@ -11,13 +11,13 @@ output:
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = stringr::str_replace(inputFile, ".Rmd",paste0("_", stringr::str_remove_all(Sys.Date(),"-"),'.html'))) })
 ---
 
-# Introduction
+## Introduction
 
-This Rmd script reproduces all calculations performed for the manuscript "Normalization strategies for lipidome data in cell line panels". We have created a small fake raw dataset that you can use for testing purposes if you want to use this code yourself. The real data cannot be published with this manuscript yet, but metabolomics data have been deposited to the EMBL-EBI MetaboLights database (DOI: 10.1093/nar/gkad1045, <PMID:37971328>) with the identifier MTBLS9493 and is accessible at <https://www.ebi.ac.uk/metabolights/MTBLS9493>.
+This Rmd script reproduces all calculations performed for the manuscript "Normalization strategies for lipidome data in cell line panels". The data cannot be published with this manuscript yet, because we are still interpreting the biological processes. Metabolomics data have been deposited to the EMBL-EBI MetaboLights database (DOI: 10.1093/nar/gkad1045, <PMID:37971328>) with the identifier MTBLS9493 and is accessible at <https://www.ebi.ac.uk/metabolights/MTBLS9493>.
 
-# Preparations
+## Preparations
 
-## Load R libraries
+### Load R libraries
 
 ```{r}
 library(tidyverse)
@@ -33,27 +33,25 @@ source(here("code/functions/calculate_lipid_class_average.R"))
 source(here("code/functions/calculate_median_signal.R"))
 ```
 
-## Define location of raw data
+### Define location of raw data
 
-The raw data can be found in data. If you want to run this code yourself, change the file path to the test_dataset folder.
+All data is in a data subfolder:
 
 ```{r}
 data_dir <- here("data/normalization_manuscript_files")
-#data_dir <- here("data/test_dataset")
 
 str_glue("Using data from {data_dir}")
 stopifnot(dir.exists(data_dir))
 ```
 
-## Create output directory
+### Create output directory
 
 ```{r}
 output_dir <- here("manuscript/data_for_figures")
-#output_dir <- here("data/normalization_manuscript_files")
 if(!dir.exists(output_dir)) dir.create(output_dir, recursive = T)
 ```
 
-## Open metadata
+### Open metadata
 
 ```{r}
 # Sample metadata
@@ -64,18 +62,20 @@ head(metadata)
 write_csv(metadata, here(output_dir, "metadata.csv"))
 
 # Information on lipid classes
-lipid_info <- read_csv(here(data_dir, "lipid_info.csv"))
+lipid_info <- read_csv(here(data_dir, "lipid_info.csv")) %>%
+  filter(class != "PG_or_BMP") # removed because we cannot distinguish between the two classes
 
 print(dim(lipid_info))
 head(lipid_info)
+unique(lipid_info$class)
 write_csv(lipid_info, here(output_dir, "lipid_info.csv"))
 ```
 
-# Figure 1
+## Figure 1
 
-Figure 1. Variation in data is mostly influenced by median signal in a sample.
+Figure 1. Variation in data is mainly influenced by the median signal in a sample.
 
-## Calculate PCA for figure 1
+### Calculate PCA for figure 1
 
 PCA of samples and boxplot per morphology. Show that main patterns in data are not due to morphology or study, but overall signal before normalization. Data is log2 transformed before plotting and autoscaled in the PCA formula.
 
@@ -88,8 +88,9 @@ log2_transform_data <- function(df){
   return(log2_data)
 }
 
-## Raw data from the studies
-raw_data <- read_csv(here(data_dir, "raw_data.csv"))
+# Raw data from the studies
+raw_data <- read_csv(here(data_dir, "raw_data.csv")) %>%
+  dplyr::select(Original_name, all_of(lipid_info$internal_identifiers))
 
 dim(raw_data)
 head(raw_data)
@@ -109,7 +110,7 @@ save(pca_raw_data, file = here(output_dir, "pca_raw_data.RData"))
 write_csv(rownames_to_column(raw_data_log2, "Original_name"), here(output_dir, "raw_data_log2.csv"))
 ```
 
-## Calculate median signal per sample
+### Calculate median signal per sample
 
 ```{r}
 medians_per_sample <- calculate_median_signal(raw_data, log2transform = T)
@@ -126,13 +127,39 @@ medians_per_sample <- medians_per_sample %>%
 write_csv(medians_per_sample, here(output_dir, "medians_per_sample.csv"), na = "")
 ```
 
-# Figure 2
+## Figure 2
 
-Figure 2. Data-based normalizations improved similarity between biological replicates.
+Figure 2. Lipid abundance distributions are not directly related to total protein concentration or cell count.
 
-## Normalize data
+Sample signal distributions related to protein concentration or cell count. In order to show 5 cell lines with similar and different median signals, I need to calculate the mean and sd of protein concentrations and cell count per cell line, the median and sd of signals per measurement mode (already done for fig 1).
 
-Based on lab journal entry 1.4.2_Normalize_lipidomics_all_merged.Rmd
+#### Mean and sd of biological measures per cell line
+
+```{r}
+sd_biological_measurements <- metadata %>%
+  filter(Study == "Cell_line_panel") %>%
+  dplyr::select(Original_name, group, corrected_conc_mg_per_mL, cell_nr_10E6) %>%
+  group_by(group) %>% 
+  summarise(mean_protein_concentration_mg_per_mL = mean(corrected_conc_mg_per_mL),
+            sd_protein_concentration_mg_per_mL = sd(corrected_conc_mg_per_mL),
+            mean_cell_nr_10E6 = mean(cell_nr_10E6),
+            sd_cell_nr_10E6 = sd(cell_nr_10E6))
+
+# Check if it looks ok for one cell line
+metadata %>%
+  filter(cell_line == "T47D") %>%
+  dplyr::select(Original_name, group, corrected_conc_mg_per_mL, cell_nr_10E6)
+
+sd_biological_measurements %>% filter(group == "T47D")
+
+write_csv(sd_biological_measurements, here(output_dir, "sd_biological_measurements.csv"))
+```
+
+## Figure 3
+
+Figure 3. Data-based normalizations improve similarity between replicates.
+
+### Normalize data
 
 Calculation takes \~2 min.
 
@@ -152,14 +179,15 @@ metadata_treatment_2DG <- metadata_treatment_2DG_allreps %>%
   
 head(metadata_treatment_2DG)
 
-raw_data_treatment_2DG_allreps <- read_csv(here(data_dir, "raw_data_treatment_2DG.csv"))
+raw_data_treatment_2DG_allreps <- read_csv(here(data_dir, "raw_data_treatment_2DG.csv")) %>%
+  dplyr::select(Original_name, all_of(lipid_info$internal_identifiers))
 remove_rep1 <- function(df){
   df <- filter(df, Original_name %in% metadata_treatment_2DG$Original_name)
   return(df)
 }
 raw_data_treatment_2DG <- remove_rep1(raw_data_treatment_2DG_allreps)
 
-# quick quality check
+## quick quality check
 stopifnot(nrow(raw_data_treatment_2DG) == nrow(metadata_treatment_2DG))
 stopifnot(nrow(raw_data) == nrow(metadata_cell_lines))
 ```
@@ -176,7 +204,7 @@ if(!dir.exists(output_normalizations)){
 }
 print(str_glue("Files saved to {output_normalizations}"))
 
-# Loop over all settings and all data frames
+## Loop over all settings and all data frames
 for(normalization_mode in c("pqn", "sum", "median", "not", "bca", "cellcount")){
 for(data_subset in c("treatment_2DG", "cell_lines")){
   if(data_subset == "treatment_2DG"){
@@ -245,11 +273,11 @@ for(data_subset in c("treatment_2DG", "cell_lines")){
 }}
 ```
 
-## ICC part
+### ICC part
 
 This code calculates intraclass correlations for each lipid, after various normalization strategies.
 
-## ICC calculations from list of raw and normalized data
+### ICC calculations from list of raw and normalized data
 
 Load lists of normalized data and calculate ICCs
 
@@ -309,41 +337,13 @@ write_csv(ICC_cell_lines_normalization_merged, here(output_dir, "ICC_cell_lines_
 write_csv(ICC_treatment_2DG_normalization_merged, here(output_dir, "ICC_treatment_2DG_normalization_merged.csv"), na = "")
 ```
 
-## Part with density distributions
+### Part with density distributions
 
 No additional calculations are needed for this plot.
 
-# Figure 3
+## Figure 4
 
-Figure 3. Lipid abundance distributions are not directly related to total protein concentration or cell count.
-
-Sample signal distributions related to protein concentration or cell count. In order to show 5 cell lines with similar and different median signals, I need to calculate the mean and sd of protein concentrations and cell count per cell line, the median and sd of signals per measurement mode (already done for fig 1).
-
-### Mean and sd of biological measures per cell line
-
-```{r}
-sd_biological_measurements <- metadata %>%
-  filter(Study == "Cell_line_panel") %>%
-  dplyr::select(Original_name, group, corrected_conc_mg_per_mL, cell_nr_10E6) %>%
-  group_by(group) %>% 
-  summarise(mean_protein_concentration_mg_per_mL = mean(corrected_conc_mg_per_mL),
-            sd_protein_concentration_mg_per_mL = sd(corrected_conc_mg_per_mL),
-            mean_cell_nr_10E6 = mean(cell_nr_10E6),
-            sd_cell_nr_10E6 = sd(cell_nr_10E6))
-
-## Check if it looks ok for one cell line
-metadata %>%
-  filter(cell_line == "T47D") %>%
-  dplyr::select(Original_name, group, corrected_conc_mg_per_mL, cell_nr_10E6)
-
-sd_biological_measurements %>% filter(group == "T47D")
-
-write_csv(sd_biological_measurements, here(output_dir, "sd_biological_measurements.csv"))
-```
-
-# Figure 4
-
-Figure 4 Correlation between class averages before normalization shows an overall agreement for structural lipids, but not for triglycerides and some signaling lipids.
+Figure 4. Correlation between lipid classes before normalization shows an overall agreement 704 for structural lipids, but not for triglycerides and some signaling lipids.
 
 Here, class averages and correlations are calculated.
 
@@ -370,7 +370,7 @@ write_csv(subclass_averages_transformed_scaled,
           here(output_dir, "class_average_correlations.csv"))
 ```
 
-## Sum of structural lipids in raw data
+### Sum of structural lipids in raw data
 
 ```{r}
 sums_of_structural_lipids <- raw_data %>% 
@@ -394,11 +394,11 @@ sums_of_structural_lipids %>%
   write_csv(here(output_dir, "rawdata_sums_of_structural_lipids_and_TGs.csv"))
 ```
 
-# Figure 5
+## Figure 5
 
-Figure 5 Differences in PE class average between morphologies are partially caused by normalization.
+Figure 5 Differences in PE class average between morphologies are partially created by normalization.
 
-## Normalize by structural lipids
+### Normalize by structural lipids
 
 ```{r}
 structural_lipid_classes <- c("PE", "PS", "PI", "PC", "SM")
@@ -409,10 +409,12 @@ structural_lipids <- filter(lipid_info,
 data_cell_lines_list[["PQN_SLNormalized_notTransformed_notScaled"]] <- 
   normalize_lipidomics_quotNorm_structural_lipids(raw_data, structural_lipids) 
 
-data_cell_lines_list[["PQN_SLNormalized_log2Transformed_autoScaled"]] <-
+data_cell_lines_list[["PQN_SLNormalized_log2Transformed_notScaled"]] <-
   data_cell_lines_list[["PQN_SLNormalized_notTransformed_notScaled"]] %>%
     replace_missing_values_by_10percent() %>%
-    log2transform_lipidomics() %>%
+    log2transform_lipidomics()
+data_cell_lines_list[["PQN_SLNormalized_log2Transformed_autoScaled"]] <-
+  data_cell_lines_list[["PQN_SLNormalized_log2Transformed_notScaled"]] %>%
     auto_scale_lipids()
 
 data_cell_lines_list[["PQN_SLNormalized_cuberootTransformed_autoScaled"]] <-
@@ -420,9 +422,10 @@ data_cell_lines_list[["PQN_SLNormalized_cuberootTransformed_autoScaled"]] <-
     cubeRootTransform_lipidomics() %>%
     auto_scale_lipids()
 
+save_normalized_df(data_cell_lines_list[["PQN_SLNormalized_log2Transformed_notScaled"]], output_normalizations, "SL", "cell_lines", "PQNNormalized_log2Transformed_notScaled")
 ```
 
-## Calculate class averages for TG and PE
+### Calculate class averages for TG and PE
 
 ```{r}
 calculate_lipid_class_averages <- function(df){
@@ -448,7 +451,7 @@ class_averages_merged <- data_cell_lines_list[["PQNNormalized_log2Transformed_au
 class_averages_by_structural_lipids <- data_cell_lines_list[["PQN_SLNormalized_log2Transformed_autoScaled"]] %>%
   calculate_lipid_class_averages()
 
-## Correlate TG and PE quickly
+### Correlate TG and PE quickly
 calculate_TG_PE_cor <- function(df){
   TG_and_PE <- df %>%
     dplyr::select(-class_sd) %>%
@@ -461,19 +464,39 @@ calculate_TG_PE_cor(class_averages_merged)
 calculate_TG_PE_cor(class_averages_by_structural_lipids)
 ```
 
+For the reviewer: what happens without autoscaling
+
+```{r}
+noAutoscale_class_averages_TGPE_rawdata <- data_cell_lines_list[["NotNormalized_log2Transformed_notScaled"]] %>%
+  calculate_lipid_class_averages()
+noAutoscale_class_averages_merged <- data_cell_lines_list[["PQNNormalized_log2Transformed_notScaled"]] %>%
+  calculate_lipid_class_averages()
+noAutoscale_class_averages_by_structural_lipids <- data_cell_lines_list[["PQN_SLNormalized_log2Transformed_notScaled"]] %>%
+  calculate_lipid_class_averages()
+
+calculate_TG_PE_cor(noAutoscale_class_averages_TGPE_rawdata)
+calculate_TG_PE_cor(noAutoscale_class_averages_merged)
+calculate_TG_PE_cor(noAutoscale_class_averages_by_structural_lipids)
+```
+
 Write to file
 
 ```{r}
 write_csv(class_averages_TGPE_rawdata, here(output_dir, "class_averages_TGPE_rawdata.csv"))
 write_csv(class_averages_merged, here(output_dir, "class_averages_merged.csv"))
 write_csv(class_averages_by_structural_lipids, here(output_dir, "class_averages_by_structural_lipids.csv"))
+
+write_csv(noAutoscale_class_averages_TGPE_rawdata, here(output_dir, "noAutoscale_class_averages_TGPE_rawdata.csv"))
+write_csv(noAutoscale_class_averages_merged, here(output_dir, "noAutoscale_class_averages_merged.csv"))
+write_csv(noAutoscale_class_averages_by_structural_lipids, here(output_dir, "noAutoscale_class_averages_by_structural_lipids.csv"))
+
 ```
 
-# Figure 6
+## Figure 6
 
-Figure 6 Correlation of PCs after data transformation shows similar results.
+Figure 6 Correlation of principal components after data transformation shows similar results.
 
-## Average biological replicates
+### Average biological replicates
 
 ```{r}
 average_biological_replicates <- function(df, metadata){
@@ -498,10 +521,10 @@ data_cell_lines_list[["PQN_SLNormalized_cuberootTransformed_autoScaled"]] %>%
   write_csv(file = here(output_dir, "pqn_data_cuberoot.csv"))
 ```
 
-## Perform differential abundance analysis
+### Perform differential abundance analysis
 
 ```{r}
-# Show epithelial and mesenchymal cell lines for report.
+## Show epithelial and mesenchymal cell lines for report.
 metadata %>%
   filter(Morphology == "Epithelial-like") %>% pull(group) %>% unique()
 
@@ -509,10 +532,10 @@ metadata %>%
   filter(Morphology == "Mesenchymal-like") %>% pull(group) %>% unique()
 ```
 
-### Write function that calculates differential abundance
+#### Write function that calculates differential abundance
 
 ```{r}
-### Specify design
+#### Specify design
 design_df <- metadata %>% dplyr::select(group, Morphology) %>%
   filter(Morphology %in% c("Epithelial-like", "Mesenchymal-like")) %>%
   unique() %>%
@@ -549,7 +572,7 @@ differential_lipid_abundance <- function(df, design, return_all = F){
 }
 ```
 
-### Apply to datasets
+#### Apply to datasets
 
 ```{r}
 data_cell_lines_list[["PQN_SLNormalized_log2Transformed_notScaled"]] <-
@@ -582,7 +605,7 @@ for(transformation in c("log2", "not", "cuberoot")){
 }
 ```
 
-### Check and save lipids for the venn diagram
+#### Check and save lipids for the venn diagram
 
 ```{r}
 ggvenn(lapply(list_of_all_lipids, rownames))
@@ -593,8 +616,7 @@ venn_diagram_differential_lipids <- lapply(list_of_all_lipids, rownames)
 save(venn_diagram_differential_lipids, file = here(output_dir, "venn_diagram_differential_lipids.RData"))
 ```
 
-
-# Supplementary Figure 2
+## Supplementary Figure 4
 
 ```{r}
 metadata_cell_lines <- metadata %>%
@@ -616,9 +638,9 @@ ggplot(ICC_cell_lines_transformation, aes(x = log2, y = cuberoot)) + geom_point(
 write_csv(rownames_to_column(ICC_cell_lines_transformation, "lipid"), file = here(output_dir, "ICC_cell_lines_transformation.csv"))
 ```
 
-# Supplementary Figure 3
+## Supplementary Figure 3
 
-Get all data for a single cell line BT549, all three replicates
+Get all data for a single cell line BT549, all three replicates.
 
 ```{r}
 distributions_one_cell_line <- data_cell_lines_list[c(
@@ -674,7 +696,7 @@ head(BT549_density_info)
 write_csv(BT549_density_info, here(output_dir, "BT549_density_info.csv"), na = "")
 ```
 
-# Session info
+## Session info
 
 ```{r}
 sessionInfo()
