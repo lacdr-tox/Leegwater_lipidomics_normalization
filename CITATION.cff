@@ -1,11 +1,15 @@
 cff-version: 1.2.0
-message: "If you use this code, please cite it as below."
+message: "If you use this code, please cite the code directly, or cite the manuscript using the DOI provided in this abstract."
 authors:
   - family-names: Leegwater
     given-names: Hanneke
     affiliation: Leiden University
     orcid: https://orcid.org/0000-0001-6003-1544
-title: "Normalization strategies for lipidome data in cell line panels"
+  - family-names: Kindt
+    given-names: Alida
+    affiliation: Leiden University
+    orcid: https://orcid.org/0000-0001-6551-6030
+title: "Code for manuscript Normalization Strategies for Lipidome Data in Cell Line Panels"
 version: 1.2.0
 date-released: 2024-12-03
 identifiers:
@@ -13,5 +17,5 @@ identifiers:
     value: 10.5281/zenodo.10635384
 abstract: |-
   Code to generate figures for "Normalization strategies for lipidome data in 
-  cell line panels" (Leegwater et al. 2024)
+  cell line panels", by Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A., Zweemer, A., Le Dévédec, S. and Kindt, A. (2024). Journal of Chemometrics e3636. https://doi.org/10.1002/cem.3636.
 license: MIT

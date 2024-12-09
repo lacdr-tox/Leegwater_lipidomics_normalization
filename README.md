@@ -1,12 +1,12 @@
 [![DOI](https://zenodo.org/badge/754549889.svg)](https://zenodo.org/doi/10.5281/zenodo.10635384)
 
-# Leegwater - Normalization strategies for lipidome data in cell line panels
+# Normalization Strategies for Lipidome Data in Cell Line Panels
 
-Code and example dataset to generate figures for "Normalization strategies for lipidome data in cell line panels" (Leegwater et al. submitted)
+Code to generate figures for "Normalization Strategies for Lipidome Data in Cell Line Panels", by Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A., Zweemer, A., Le Dévédec, S. and Kindt, A. (2024). Journal of Chemometrics e3636. <https://doi.org/10.1002/cem.3636> .
 
 ## Usage
 
-Within the code folder, you will find two R markdown files and a functions folder. The R markdown files can be used to rerun all code and to create all figures. Functions that one might want to reuse can be found in the functions folder. 
+Within the code folder, you will find two R markdown files and a functions folder. The R markdown files can be used to rerun all code and to create all figures. Functions that one might want to reuse can be found in the functions folder.
 
 ### Data
 
