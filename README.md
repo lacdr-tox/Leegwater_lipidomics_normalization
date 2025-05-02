@@ -1,18 +1,32 @@
 [![DOI](https://zenodo.org/badge/754549889.svg)](https://zenodo.org/doi/10.5281/zenodo.10635384)
 
-# Normalization Strategies for Lipidome Data in Cell Line Panels
+# Lipidomics in breast cancer cell lines
 
-Code to generate figures for "Normalization Strategies for Lipidome Data in Cell Line Panels", by Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A., Zweemer, A., Le Dévédec, S. and Kindt, A. (2024). Journal of Chemometrics e3636. <https://doi.org/10.1002/cem.3636> .
+This repository contains code to analyze data and generate figures for the following two manuscripts:
+
+```         
+"Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A. C., Zweemer, A. J. M., Le Dévédec, S. E., & Kindt, A. (2025). Normalization Strategies for Lipidome Data in Cell Line Panels. Journal of Chemometrics, 39(1), e3636. https://doi.org/10.1002/cem.3636
+```
+
+and soon code will be added for:
+
+```         
+"Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes", by Leegwater, H. _et al._ (submitted).
+```
+
+If you already have questions about this new manuscript and the code, send us a message! We plan to release the code when the manuscript is accepted.
 
 ## Usage
 
-Within the code folder, you will find two R markdown files and a functions folder. The R markdown files can be used to rerun all code and to create all figures. Functions that one might want to reuse can be found in the functions folder.
+Within the `code` folder, you will find R markdown files (Normalization manuscript) and Quarto files (Biological interpretation manuscript) and a `functions` folder. The R markdown/Quarto files can be used to rerun all code and to create all figures. Functions that one might want to reuse can be found in the functions folder.
+
+Note that both projects were run with different versions of R and R packages. If you run into trouble with versions, the `docs` folder has the reports of the version used for manuscript submission, with all session info recorded.
 
 ### Data
 
-Metabolomics data have been deposited to the EMBL-EBI MetaboLights ([`Yurekten et al., 2024`](https://doi.org/10.1093/nar/gkad1045)) with the identifier MTBLS9493and is accessible at https://www.ebi.ac.uk/metabolights/MTBLS9493. 
+Metabolomics data have been deposited to the EMBL-EBI MetaboLights ([`Yurekten et al., 2024`](https://doi.org/10.1093/nar/gkad1045)) with the identifier MTBLS9493 and is accessible at <https://www.ebi.ac.uk/metabolights/MTBLS9493>.
 
-When this dataset status is changed to public, we will add it and metadata to the data folder in this repository. For now, you can take a look at the html reports to see what the data could look like.
+We hope to set all data to public soon, which will be when both papers are published. Then, we will create a new folder in this GitHub directory with the data in a separate `data` folder. For now, you can take a look at the HTML reports to see what the data and results could look like.
 
 ### Figures
 
@@ -36,4 +50,4 @@ Figures are generated reproducibly in R using [`renv`](https://rstudio.github.io
 
 ## Acknowledgments
 
-Thanks to [@burgerga](https://www.github.com/burgerga) for suggestions on archiving this repository.
+Thanks to [\@burgerga](https://www.github.com/burgerga) for suggestions on publishing this repository.

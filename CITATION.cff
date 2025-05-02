@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this code, please cite the code directly, or cite the manuscript using the DOI provided in this abstract."
+message: "Please cite the publication if you use this code, optionally together with this repository's Zenodo DOI."
 authors:
   - family-names: Leegwater
     given-names: Hanneke
@@ -9,13 +9,43 @@ authors:
     given-names: Alida
     affiliation: Leiden University
     orcid: https://orcid.org/0000-0001-6551-6030
-title: "Code for manuscript Normalization Strategies for Lipidome Data in Cell Line Panels"
-version: 1.2.0
-date-released: 2024-12-03
+title: "Code to normalize and interpret lipidome data in breast cancer cell lines."
+version: 1.2.1
+date-released: 2025-05-02
 identifiers:
   - type: doi
     value: 10.5281/zenodo.10635384
 abstract: |-
-  Code to generate figures for "Normalization strategies for lipidome data in 
-  cell line panels", by Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A., Zweemer, A., Le Dévédec, S. and Kindt, A. (2024). Journal of Chemometrics e3636. https://doi.org/10.1002/cem.3636.
+  Code to generate figures for: Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A. C., Zweemer, A. J. M., Le Dévédec, S. E., & Kindt, A. (2025). Normalization Strategies for Lipidome Data in Cell Line Panels. Journal of Chemometrics, 39(1), e3636. https://doi.org/10.1002/cem.3636 and Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes", by Leegwater, H. _et al._ (submitted).
+
 license: MIT
+
+preferred-citation:
+  title: "Normalization strategies for lipidome data in cell line panels"
+  type: article
+  authors:
+      - family-names: Leegwater
+        given-names: Hanneke
+      - family-names: Zhang
+        given-names: Zhengzheng
+      - family-names: Zhang
+        given-names: Xiaobing
+      - family-names: Hankemeier
+        given-names: Thomas
+      - family-names: Harms
+        given-names: Amy C.
+      - family-names: Zweemer
+        given-names: Annelien J. M.
+      - family-names: Le Dévédec
+        given-names: Sylvia E.
+      - family-names: Kindt
+        given-names: Alida
+  journal: Journal of Chemometrics
+  year: 2025
+  identifiers: 
+      - type: doi
+        value: 10.1002/cem.3636
+  issue: 1
+  pages: e3636
+  volume: 39
+  url: https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/cem.3636
