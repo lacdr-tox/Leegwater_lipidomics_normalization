@@ -51,7 +51,7 @@ stopifnot(dir.exists(data_dir))
 
 ```{r}
 datestamp <- str_remove_all(Sys.Date(), "-")
-output_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_figures"))
+output_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_revision"))
 str_glue("Output directory path is {output_dir}")
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 output_dir
@@ -974,11 +974,9 @@ average_data_treatment_2DG <- lipid_class_averages_long %>%
   mutate(
     Subject = str_glue("{cell_line}_{biological_replicate}_{Treatment}"),
     sample = str_glue("{cell_line}_{biological_replicate}")
-  ) ->
-lipid_class_averages_over_time
+  )
 
-lipid_class_averages_over_time %>%
-  filter(Treatment == "ctrl") %>%
+lipid_class_averages_over_time <- average_data_treatment_2DG %>%
   # Calculate average for all cell lines and replicates
   group_by(cell_line, Treatment, Time, subclass) %>%
   summarise(
@@ -991,7 +989,7 @@ lipid_class_averages_over_time %>%
     lipid_column = "subclass_mean",
     amount_of_controls = 2
   ) %>%
-  mutate(Subject = str_c(cell_line, Treatment)) -> lipid_class_averages_over_time
+  mutate(Subject = str_c(cell_line, Treatment))
 
 write_csv(lipid_class_averages_over_time, here(output_dir, "lipid_class_averages_scaledT0_over_time.csv"))
 here(output_dir, "lipid_class_averages_over_time.csv")
@@ -1040,6 +1038,9 @@ cm <- makeContrasts(
   treatment_diff_6h = t2DG_6 - ctrl_6,
   treatment_diff_24h = t2DG_24 - ctrl_24,
   treatment_diff_48h = t2DG_48 - ctrl_48,
+  treatment_diff_2DG6h_0h = t2DG_6 - ctrl_0,
+  treatment_diff_2DG24h_0h = t2DG_24 - ctrl_0,
+  treatment_diff_2DG48h_0h = t2DG_48 - ctrl_0,
   time_diff_6_0 = ctrl_6 - ctrl_0,
   time_diff_24_0 = ctrl_24 - ctrl_0,
   time_diff_48_0 = ctrl_48 - ctrl_0,
@@ -1065,6 +1066,51 @@ lipid_48h_differences <- topTable(fit2, coef = "time_diff_48_0", n = Inf) %>%
   ))
 dim(lipid_48h_differences)
 head(lipid_48h_differences)
+```
+
+#### After peer review
+
+Also extract differences upon 2DG treatment compared to T0 and compared to T48.
+
+```{r}
+extract_contrast_foldchanges <- function(coefficient){
+  df <- topTable(fit2, coef = coefficient, n = Inf) %>%
+  rownames_to_column("internal_identifiers") %>%
+  left_join(
+    dplyr::select(
+      lipid_info, internal_identifiers, identifiers, subclass,
+      total_chain_length, saturation, database_identifier
+    ),
+    by = "internal_identifiers"
+  ) %>%
+  mutate(subclass = ifelse(subclass == "unidentified sphingolipid", "unidentified", subclass)) %>%
+  rowwise() %>%
+  mutate(color_FDR = decide_significance(P.Value, adj.P.Val, logFC,
+    p_cutoff = 0.05, FDR_cutoff = 0.1
+  )) %>%
+    dplyr::select(
+      identifiers, subclass, total_chain_length, saturation,
+      logFC, P.Value, adj.P.Val, database_identifier, color_FDR
+  ) %>%
+    rename(
+      logFC = str_c("logFC_", coefficient),
+      P.Value = str_c("P.Value_", coefficient),
+      adj.P.Val = str_c("adj.P.Val_", coefficient),
+      color_FDR = str_c("color_FDR_", coefficient)
+    )
+  return(df)
+}
+lipid_2DG_treatment_differences <- inner_join(
+  extract_contrast_foldchanges("treatment_diff_48h"),
+  extract_contrast_foldchanges("time_diff_48_0"),
+  by = c("identifiers", "subclass", "total_chain_length", "saturation", "database_identifier")
+) %>%
+  inner_join(
+    extract_contrast_foldchanges("treatment_diff_2DG48h_0h"),
+    by = c("identifiers", "subclass", "total_chain_length", "saturation", "database_identifier")
+  )
+dim(lipid_2DG_treatment_differences)
+head(lipid_2DG_treatment_differences)
 ```
 
 #### Supplementary Table 5
@@ -1098,11 +1144,16 @@ sheet4 <- lipid_48h_differences %>%
 sheet4 %>%
   write_csv(here(output_dir, "Supplementary_Table_5_lipid_time_differences_48h.csv"))
 
+sheet5 <- lipid_2DG_treatment_differences
+sheet5 %>%
+  write_csv(here(output_dir, "Supplementary_Table_5_lipid_2DG_treatment_differences_48h.csv"))
+
 here(output_dir, "Supplementary_Table_5.xlsx")
 writexl::write_xlsx(
   list(
     sample_metadata = sheet1, lipid_metadata = sheet2,
-    normalized_lipids = sheet3, lipid_time_differences_48h = sheet4
+    normalized_lipids = sheet3, lipid_time_differences_48h = sheet4,
+    lipid_2DG_treatment_differences = sheet5
   ),
   path = here(output_dir, "Supplementary_Table_5.xlsx"),
   col_names = TRUE,

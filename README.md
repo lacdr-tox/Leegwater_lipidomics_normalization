@@ -8,13 +8,11 @@ This repository contains code to analyze data and generate figures for the follo
 "Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A. C., Zweemer, A. J. M., Le Dévédec, S. E., & Kindt, A. (2025). Normalization Strategies for Lipidome Data in Cell Line Panels. Journal of Chemometrics, 39(1), e3636. https://doi.org/10.1002/cem.3636
 ```
 
-and soon code will be added for:
+and:
 
 ```         
-"Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes", by Leegwater, H. _et al._ (submitted).
+Leegwater H., Zhang Z., Zhang X., Wang X., Hankemeier T., Zweemer A. J. M., van de Water B., Danen E., Hoekstra M., Harms A. C., Kindt A., Le Dévédec S. E. (2025). Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes. Biochim Biophys Acta Mol Cell Biol Lipids. 2025 Aug 3:159679. https://doi.org/10.1016/j.bbalip.2025.159679. Epub ahead of print. PMID: 40763903.
 ```
-
-If you already have questions about this new manuscript and the code, send us a message! We plan to release the code when the manuscript is accepted.
 
 ## Usage
 
@@ -26,7 +24,7 @@ Note that both projects were run with different versions of R and R packages. If
 
 Metabolomics data have been deposited to the EMBL-EBI MetaboLights ([`Yurekten et al., 2024`](https://doi.org/10.1093/nar/gkad1045)) with the identifier MTBLS9493 and is accessible at <https://www.ebi.ac.uk/metabolights/MTBLS9493>.
 
-We hope to set all data to public soon, which will be when both papers are published. Then, we will create a new folder in this GitHub directory with the data in a separate `data` folder. For now, you can take a look at the HTML reports to see what the data and results could look like.
+Data to rerun the analysis is in the `data`. Let us know if anything is missing. For examples of the output, you can take a look at the HTML reports to see what the data and results could look like.
 
 ### Figures
 

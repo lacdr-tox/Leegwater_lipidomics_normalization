@@ -39,9 +39,10 @@ library(readxl)
 
 ```{r}
 datestamp <- str_remove_all(Sys.Date(), "-")
-data_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_figures"))
+#data_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_revision"))
+data_dir <- here("manuscript_biology", str_glue("20250721_data_for_revision"))
 
-output_dir <- here("manuscript_biology", str_glue("figures_v{datestamp}"))
+output_dir <- here("manuscript_biology", str_glue("revision_figures_v{datestamp}"))
 print(output_dir)
 if (!dir.exists(output_dir)) dir.create(output_dir)
 ```
@@ -170,7 +171,7 @@ cm_to_inch <- function(value_cm) {
 }
 page_width <- 18 # 18 cm
 page_height <- 18 # 18 cm
-figure_label_size <- 8
+figure_label_size <- 10
 text_size <- 6
 
 # specify the font sizes in functions and add white background
@@ -271,7 +272,7 @@ Using the cowplot save_plot function but with multiple file types.
 save_as_png_svg_pdf <- function(figure_name, plot_object, base_height = page_height, base_width = page_width) {
   base_height_inch <- cm_to_inch(base_height)
   base_width_inch <- cm_to_inch(base_width)
-  for (file_extension in c(".svg", ".png", ".pdf")) { # , ".eps", ".tiff")){
+  for (file_extension in c(".svg", ".png", ".pdf", ".eps", ".tiff")){
     save_plot(
       here(output_dir, str_c(figure_name, file_extension)),
       plot_object,
@@ -637,7 +638,8 @@ forest_plot_loadings <- function(PC_name, highlight = c(), prop_expl_var = NA) {
 heatmap_metadata_data <- read_csv(here(data_dir, "heatmap_metadata_data.csv")) %>%
   replace_na(list(category = "")) %>%
   column_to_rownames("metadata_name")
-PCA_loadings <- read_csv(here(data_dir, "PCA_loadings_lipid_classes.csv"))
+PCA_loadings <- read_csv(here(data_dir, "PCA_loadings_lipid_classes.csv")) %>%
+  mutate(lipid_class = ifelse(lipid_class == "unidentified sphingolipid", "unidentified", lipid_class))
 load(here(data_dir, "pca_lipid_classes.RData"))
 ```
 
@@ -669,8 +671,9 @@ figure_2c <- draw(
     row_title_side = "right",
     row_title_gp = gpar(fontsize = text_size),
     heatmap_legend_param = list(
-      title = "rs",
-      direction = "horizontal"
+      title = expression(r[s]),
+      direction = "horizontal",
+      title_position = "topcenter"
     ),
     border = TRUE
   ),
@@ -758,31 +761,30 @@ figure_2e
 
 ```{r fig.height=1/2.54*22}
 figure_2 <- plot_grid(
-  # ABCD
-  plot_grid(
-    # AB
+  # ABCDE
+  #plot_grid(
+    # ABC
     plot_grid(
       plot_grid(
         figure_2a,
         figure_2b,
-        labels = LETTERS[c(1, 2)],
-        rel_widths = c(2, 1)
+        figure_2c,
+        labels = LETTERS[1:3],
+        rel_widths = c(5, 4,2),
+        nrow = 1,
+        label_x = c(0, 0, - 0.1) # Adjust label plot C
       ),
       # DE
       plot_grid(
         figure_2d,
         figure_2e,
-        labels = LETTERS[c(4, 5)]
+        labels = LETTERS[4:5]
       ),
       nrow = 2,
-      rel_heights = c(3, 2)
-    ),
-    plot_grid(ggplot(), figure_2c, ncol = 1, rel_heights = c(.1, 1)),
-    labels = c(NA, LETTERS[3]),
-    nrow = 1,
-    rel_widths = c(3, 1)
+      rel_heights = c(5, 4)
+    #),
   ),
-  # E
+  # F
   plot_grid(figure_2f,
     labels = LETTERS[6]
   ),
@@ -986,6 +988,27 @@ figure_3
 save_as_png_svg_pdf(figure_3, figure_name = "Figure_3", base_height = 2 / 3 * page_width)
 ```
 
+And a bit smaller for better relative font sizes
+
+```{r}
+plot_list_smaller <- lapply(plot_list, function(p) p + 
+                      theme(
+                        axis.text.x = element_text(size = text_size * 2),
+                        axis.text.y = element_text(size = text_size * 2),
+                        axis.title.y = element_text(size = text_size * 2),
+                        strip.text = element_text(size = text_size * 2)
+                      ))
+figure_3_smaller <- plot_grid(
+  plotlist = plot_list_smaller,
+  ncol = n_col,
+  labels = LETTERS[1:length(plot_list_smaller)]
+)
+figure_3_smaller
+save_as_png_svg_pdf(figure_3_smaller, figure_name = "Figure_3_smaller", 
+                    base_height = 2 / 3 * page_width)
+```
+
+
 ### Figure 4
 
 Plot design idea is:
@@ -1174,7 +1197,7 @@ figure_4 <- plot_grid(
     plot_grid(figure_4a, figure_4c,
       ncol = 1, labels = LETTERS[c(1, 3)]
     ),
-    plot_grid(figure_4b, labels = LETTERS[2]),
+    plot_grid(figure_4b, labels = LETTERS[2], label_x = -0.01), # Adjust label plot B
     nrow = 1,
     rel_widths = c(2, 3)
   ),
@@ -1216,7 +1239,8 @@ lipid_class_averages_over_time <- read_csv(here(data_dir, "lipid_class_averages_
 ```{r fig.height=3, fig.width=3}
 figure_5a <- lipid_class_averages_over_time %>%
   filter(subclass == "TG") %>%
-  ggplot(aes(x = as.factor(Time), y = subclass_mean, group = Subject)) +
+  ggplot(aes(x = as.factor(Time), y = subclass_mean, group = Subject, 
+             color = Treatment, shape = cell_line)) +
   geom_line(aes(linetype = cell_line)) +
   geom_errorbar(aes(ymin = subclass_mean - subclass_sd, ymax = subclass_mean + subclass_sd, linetype = cell_line),
     width = .2,
@@ -1228,11 +1252,16 @@ figure_5a <- lipid_class_averages_over_time %>%
     linetype = "cell line"
   ) +
   scale_linetype_manual(values = c("dashed", "dotted", "solid")) +
+  scale_color_manual(values = c("ctrl" = "black", "2DG" = "#CB181D")) +
   geom_point(size = 1) +
   theme(
     legend.position = "inside",
-    legend.position.inside = c(0.8, 0.9)
-  )
+    legend.position.inside = c(0.02, 0.2)
+  ) +
+  guides(
+    shape = guide_legend("Cell line"),
+    linetype = guide_legend("Cell line"))
+  
 
 figure_5a
 ```
@@ -1338,7 +1367,7 @@ figure_5 <- plot_grid(
   # Top half
   plot_grid(
     plot_grid(figure_5a, figure_5c, ncol = 1, labels = LETTERS[c(1, 3)]),
-    plot_grid(figure_5b, labels = LETTERS[2]),
+    plot_grid(figure_5b, labels = LETTERS[2], label_x = -0.01), # Adjust label plot B
     nrow = 1,
     rel_widths = c(1, 2)
   ),
