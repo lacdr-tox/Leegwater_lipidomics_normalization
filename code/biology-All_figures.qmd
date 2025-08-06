@@ -1,0 +1,1512 @@
+---
+title: "All figures for manuscript"
+author: "Hanneke Leegwater"
+date: "`r Sys.Date()`"
+engine: knitr
+format: 
+  html:
+    self-contained: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    df-print: kable
+---
+
+This script reproduces all figures in the manuscript.
+The data directory needs to point to the correct location where the Calculations script has created files.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 18 / 2.54)
+```
+
+## Preparations
+
+### Load R libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(cowplot)
+library(ComplexHeatmap)
+library(dendsort)
+library(RColorBrewer)
+library(multcompView)
+library(circlize)
+library(readxl)
+```
+
+### Define input and output directory
+
+```{r}
+datestamp <- str_remove_all(Sys.Date(), "-")
+data_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_figures"))
+
+output_dir <- here("manuscript_biology", str_glue("figures_v{datestamp}"))
+print(output_dir)
+if (!dir.exists(output_dir)) dir.create(output_dir)
+```
+
+### Load all metadata
+
+```{r}
+# Sample metadata
+metadata <- read_csv(here(data_dir, "metadata.csv"))
+
+print(dim(metadata))
+print(head(metadata))
+```
+
+#### Information on lipid classes
+
+```{r}
+lipid_info <- read_csv(here(data_dir, "lipid_info.csv"))
+
+print(head(lipid_info))
+print(dim(lipid_info))
+```
+
+#### Define lipid categories
+
+```{r}
+lipid_categories <- tribble(
+  ~lipid_class, ~lipid_category,
+  "Cer", "Sphingolipids",
+  "HexCer", "Sphingolipids",
+  "LacCer", "Sphingolipids",
+  "DHCer", "Sphingolipids",
+  "unidentified", "Sphingolipids",
+  "SM", "Sphingolipids",
+  "TG", "Other",
+  "DG", "Other",
+  "Chol. esters", "Other",
+  "LPC", "Phospholipids", # lysophospholipids
+  "LPE", "Phospholipids", # lysophospholipids
+  "O-LPE", "Phospholipids", # lysophospholipids
+  "LPG", "Phospholipids", # lysophospholipids
+  "LPI", "Phospholipids", # lysophospholipids
+  "LPS", "Phospholipids", # lysophospholipids
+
+  "O-PE", "Phospholipids", # ether-linked
+  "P-PE", "Phospholipids", # ether-linked
+
+  "PC", "Phospholipids",
+  "PE", "Phospholipids",
+  "PI", "Phospholipids",
+  "PS", "Phospholipids"
+)
+lipid_categories
+```
+
+### Define all colors used in the manuscript
+
+```{r}
+# Color legends used for multiple analyses
+
+color_legend_cell_lines <- list(
+  "Epithelial-like" = "#FDE725FF", # scales::viridis_pal()(5)[5],
+  "E" = "#FDE725FF",
+  "Mesenchymal-like" = "#3B528BFF", # scales::viridis_pal()(5)[1],
+  "M" = "#3B528BFF",
+  "Round" = "#CB181D",
+  "R" = "#CB181D",
+  "Suspension" = "#5DC863FF",
+  "S" = "#5DC863FF",
+  "Unknown" = "grey40", # This is #BEBEBE
+  "U" = "grey40", # This is #BEBEBE
+  "TNBC" = "#3B528BFF",
+  "NonTNBC" = "#FDE725FF",
+  "BasalA" = "#8C9FCE",
+  "BasalB" = "#3B528BFF",
+  "Luminal" = "#FDE725FF",
+  "Ba" = "#8C9FCE",
+  "Bb" = "#3B528BFF",
+  "L" = "#FDE725FF",
+  "NA" = "grey"
+)
+
+color_legend_Subtype <- c(
+  "BasalA" = "#8C9FCE",
+  "BasalB" = "#3B528BFF",
+  "Luminal" = "#FDE725FF",
+  "Ba" = "#8C9FCE",
+  "Bb" = "#3B528BFF",
+  "L" = "#FDE725FF",
+  "NA" = "grey"
+)
+
+# Circle = HCC38, triangle = Hs578T, square = MDA-MB-231
+shape_legend_treatment_control <- c(
+  "HCC38" = 17,
+  "Hs578T" = 16,
+  "MDA-MB-231" = 3
+)
+
+color_legend_saturation <- c(
+  "SFA" = "black",
+  "MUFA" = "grey40",
+  "PUFA" = "grey"
+)
+
+color_legend_significance <- c(
+  "not sig" = "#999999", "sig neg" = "#56B4E9", "sig pos" = "#D55E00",
+  "almost sig neg" = "#B5DEF5", "almost sig pos" = "#FFA153"
+)
+
+color_legend_side_chains <- c(
+  "nocolor" = "grey",
+  "20:3" = "orange", "20:4" = "darkgreen", "17:0" = "black", "20:1" = "darkred"
+)
+```
+
+### Define personal theme to use for all plots
+
+Adapted from tutorial: [Harvard Chan Bioinformatics Core (HBC) with CC BY 4.0](https://hbctraining.github.io/publication_perfect/)
+
+Cowplot white background adapted from [here](https://stackoverflow.com/questions/53370824/change-background-color-with-plot-grid)
+
+```{r}
+cm_to_inch <- function(value_cm) {
+  return(value_cm / 2.54)
+}
+page_width <- 18 # 18 cm
+page_height <- 18 # 18 cm
+figure_label_size <- 8
+text_size <- 6
+
+# specify the font sizes in functions and add white background
+plot_grid <- function(...) {
+  cowplot::plot_grid(..., label_size = figure_label_size) +
+    ggplot2::theme(plot.background = ggplot2::element_rect(fill = "white", color = "white"))
+}
+annotate <- function(...) {
+  # see https://ggplot2-book.org/annotations#sec-custom-annotations for more details
+  # on going from mm to points
+  ggplot2::annotate(..., size = text_size * 25.4 / 72.27)
+}
+
+geom_text <- function(...) {
+  ggplot2::geom_text(..., size = text_size * 25.4 / 72.27)
+}
+
+columnAnnotation <- function(..., annotation_legend_param = list()) {
+  ComplexHeatmap::columnAnnotation(...,
+    annotation_name_gp = gpar(fontsize = text_size, fontface = 2),
+    annotation_legend_param = c(annotation_legend_param, list(
+      title_gp = gpar(fontsize = text_size, fontface = 2),
+      labels_gp = gpar(fontsize = text_size)
+    ))
+  )
+}
+rowAnnotation <- function(..., annotation_legend_param = list()) {
+  ComplexHeatmap::rowAnnotation(...,
+    annotation_name_gp = gpar(fontsize = text_size, fontface = 2),
+    annotation_legend_param = c(annotation_legend_param, list(
+      title_gp = gpar(fontsize = text_size, fontface = 2),
+      labels_gp = gpar(fontsize = text_size)
+    ))
+  )
+}
+Heatmap <- function(..., heatmap_legend_param = list()) {
+  ComplexHeatmap::Heatmap(...,
+    row_names_gp = gpar(fontsize = text_size),
+    column_names_gp = gpar(fontsize = text_size),
+    heatmap_legend_param = c(
+      heatmap_legend_param,
+      list(
+        title_gp = grid::gpar(fontsize = text_size, fontface = 2),
+        labels_gp = grid::gpar(fontsize = text_size)
+      )
+    )
+  )
+}
+
+# use the same font size for all ggplots
+ggplot <- function(...) {
+  ggplot2::ggplot(...) +
+    theme_half_open(font_size = text_size) +
+    # White background and change all font sizes
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      legend.text = element_text(size = text_size),
+      legend.title = element_text(size = text_size)
+    ) +
+    theme(legend.position = "none")
+}
+```
+
+### Extract legends from plots
+
+The cowplot get_legend has a small bug and this is a workaround.
+Based on [get_plot_component](https://github.com/wilkelab/cowplot/issues/202).
+
+```{r}
+get_legend <- function(p, position = "bottom", n_row = 1, justification = "center") {
+  the_legend <- get_plot_component(
+    p +
+      guides(
+        color = guide_legend(),
+        shape = FALSE
+      ) +
+      guides(color = guide_legend(nrow = n_row)) +
+      theme(
+        plot.background = element_rect(fill = "white", color = NA),
+        legend.text = element_text(size = text_size),
+        legend.title = element_text(size = text_size)
+      ) +
+      theme(
+        legend.position = position,
+        legend.justification = justification
+      ),
+    str_glue("guide-box-{position}")
+  )
+  return(the_legend)
+}
+```
+
+### Save plots as png, svg, eps, tiff and pdf
+
+Using the cowplot save_plot function but with multiple file types.
+
+```{r}
+save_as_png_svg_pdf <- function(figure_name, plot_object, base_height = page_height, base_width = page_width) {
+  base_height_inch <- cm_to_inch(base_height)
+  base_width_inch <- cm_to_inch(base_width)
+  for (file_extension in c(".svg", ".png", ".pdf")) { # , ".eps", ".tiff")){
+    save_plot(
+      here(output_dir, str_c(figure_name, file_extension)),
+      plot_object,
+      base_height = base_height_inch,
+      base_width = base_width_inch, dpi = 800
+    )
+  }
+  print(here(output_dir, str_c(figure_name, file_extension)))
+}
+```
+
+## Figures
+
+### Figure 1
+
+#### Load data
+
+```{r}
+lipid_genes_log2_FC1_padj_0.01 <- read_csv(here(data_dir, "lipid_genes_log2_FC1_padj_0.01.csv")) %>%
+  column_to_rownames("gene_symbol")
+
+GO_terms_annotation <- read_csv(here(data_dir, "GO_terms_annotation.csv")) %>%
+  column_to_rownames("gene_symbol") %>%
+  # rename to get the names shorter
+  rename_with(~ str_replace(., "metabolic process", "m.p."))
+```
+
+#### Prepare metadata
+
+on cell lines for the heatmap
+
+```{r}
+metadata_heatmap_cells <- metadata %>%
+  dplyr::select(group, Morphology, Subtype, EMT_score) %>%
+  filter(group %in% colnames(lipid_genes_log2_FC1_padj_0.01)) %>%
+  column_to_rownames("group")
+dim(metadata_heatmap_cells)
+head(metadata_heatmap_cells)
+```
+
+#### Define heatmap colors
+
+```{r}
+ann_colors <- list(
+  Morphology = color_legend_cell_lines[unique(metadata_heatmap_cells$Morphology)] %>% unlist(),
+  Subtype = color_legend_Subtype,
+  "EMT score" = colorRamp2(
+    c(
+      min(metadata_heatmap_cells$EMT_score),
+      max(metadata_heatmap_cells$EMT_score)
+    ),
+    c(
+      color_legend_cell_lines$`Epithelial-like`,
+      color_legend_cell_lines$`Mesenchymal-like`
+    )
+  )
+)
+
+GO_colors <- setNames(
+  lapply(colnames(GO_terms_annotation), function(x) c("0" = "white", "1" = "black")),
+  colnames(GO_terms_annotation)
+)
+
+ann_colors
+```
+
+#### Plot
+
+```{r}
+# sort the columns
+lipid_genes_log2_FC1_padj_0.01 <- lipid_genes_log2_FC1_padj_0.01 %>%
+  dplyr::select(all_of(rownames(metadata_heatmap_cells)))
+stopifnot(all(rownames(metadata_heatmap_cells) == colnames(lipid_genes_log2_FC1_padj_0.01)))
+```
+
+Use scaled gene expression:
+
+```{r}
+df_heatmap <- lipid_genes_log2_FC1_padj_0.01 %>%
+  t() %>%
+  scale() %>%
+  t()
+```
+
+```{r fig.height=1/2.54*18}
+seq <- seq(-2, 2, 0.01)
+color_heatmap <- colorRamp2(
+  breaks = seq,
+  colors = colorRampPalette(c("darkblue", "white", "firebrick"))(length(seq))
+)
+
+column_annotation <- columnAnnotation(
+  Morphology = metadata_heatmap_cells$Morphology,
+  Subtype = metadata_heatmap_cells$Subtype,
+  "EMT score" = metadata_heatmap_cells$EMT_score,
+  col = ann_colors,
+  simple_anno_size = unit(3, "mm")
+)
+```
+
+```{r fig.height=1/2.54*18}
+# highlight subset of genes
+gene_selection <- c(
+  # Highlight a few genes
+
+  # phospholipid metabolism
+  "PGAP3", # attaching a GPI anchor to proteins
+  "PGAP4", # attaching a GPI anchor to proteins
+
+  "ETNK2", # ethanolamine kinase 2
+  "DGKG", # diacylglycerol kinase gamma
+  "PLPP4", # phospholipid phosphatase 4
+  "PLPP5", # phospholipid phosphatase 5
+
+  # Phosphatidylinositol-related
+  "PIK3C2B",
+  "PIK3CD",
+  "PIK3R1",
+  "PIK3R3",
+
+  # fatty acid metabolism
+  "FASN", # fatty acid synthesis
+  "SCD", # MUFA synthesis
+  "SREBF1", # sterol regulatory element-binding protein 1, lipid-related transcription factor
+  "ACSL4", # Long-chain-fatty-acid--CoA ligase
+  "ACSL1", # Long-chain-fatty-acid--CoA ligase
+
+  # lipid transport
+  "ABCA12", #   glucosylceramide transporter
+  "ABCA3", #   phospholipid transporter
+  "ABCG1", #   cholesterol efflux
+  "SLC44A2", #   choline transporter in mitochondria
+  "SLC44A4", #   Choline transporter-like protein 4
+  "ABCB4", #   phospholipid transporter
+  "PLTP", #   phospholipid transporter
+
+  # sphingolipid metabolism
+  "DEGS2",
+  "CERS6",
+  "ACER1",
+  "GM2A",
+  "ASAH1",
+  "SMPD3",
+  #
+  # The estrogen receptor
+  "ESR1"
+)
+gene_indices <- which(rownames(df_heatmap) %in% gene_selection)
+gene_indices
+rownames(df_heatmap)[gene_indices]
+
+gene_selection_rows <- rowAnnotation(
+  link = anno_mark(
+    at = gene_indices,
+    labels = rownames(df_heatmap)[gene_indices],
+    labels_gp = gpar(fontsize = text_size),
+    padding = unit(1, "mm")
+  )
+)
+
+# Add pathways to the left
+
+GO <- rowAnnotation(
+  df = GO_terms_annotation,
+  col = GO_colors,
+  show_legend = c(T, F, F, F),
+  annotation_legend_param = list(
+    title = "in pathway",
+    labels = c("no", "yes")
+  ),
+  simple_anno_size = unit(2, "mm")
+)
+
+figure_1 <- Heatmap(
+  matrix = df_heatmap,
+  col = color_heatmap,
+  heatmap_legend_param = list(
+    title = "zscore\ngene expression",
+    direction = "vertical",
+    at = c(-2, -1, 0, 1, 2),
+    labels = c("<-2", -1, 0, 1, ">2"),
+    break_dist = c(1, 1, 1, 1)
+  ),
+  top_annotation = column_annotation,
+  # split in two groups for visibility
+  column_gap = unit(1, "mm"),
+  column_split = 2,
+  column_title = NULL,
+  row_split = 2,
+  row_title = NULL,
+  row_gap = unit(1, "mm"),
+  # gene names
+  show_row_names = F,
+  right_annotation = gene_selection_rows,
+  # pathways on the left
+  left_annotation = GO
+)
+figure_1
+```
+
+#### Save figure
+
+```{r fig.height=1/2.54*18}
+figure_1
+png(
+  filename = here(output_dir, "Figure_1.png"),
+  width = page_width, height = page_height, units = "cm", res = 600
+)
+draw(figure_1)
+dev.off()
+
+pdf(
+  file = here(output_dir, "Figure_1.pdf"),
+  width = cm_to_inch(page_width), height = cm_to_inch(18)
+)
+draw(figure_1)
+dev.off()
+
+svg(
+  file = here(output_dir, "Figure_1.svg"),
+  width = cm_to_inch(page_width), height = cm_to_inch(18)
+)
+draw(figure_1)
+dev.off()
+```
+
+### Figure 2
+
+#### Load data
+
+```{r}
+class_average_correlations <- read_csv(
+  here(data_dir, "lipid_class_average_correlations_after_SL_normalization.csv")
+) %>%
+  # rename unidentified sphingolipid
+  mutate(lipid = ifelse(lipid == "unidentified sphingolipid", "unidentified", lipid)) %>%
+  dplyr::rename("unidentified" = "unidentified sphingolipid") %>%
+  column_to_rownames("lipid")
+```
+
+```{r}
+lipid_class_averages <- read_csv(here(data_dir, "lipid_class_averages_after_SL_normalization.csv")) %>%
+  dplyr::rename("unidentified" = "unidentified sphingolipid")
+```
+
+#### Plot
+
+```{r fig.height=1/2.54*8}
+sort_hclust <- function(...) as.hclust(dendsort(as.dendrogram(...)))
+cluster_cols <- sort_hclust(hclust(dist(class_average_correlations)))
+
+# Color all low correlations between -0.35 and +0.35 white
+color_steps <- 40
+
+color_correlations <- colorRamp2(
+  c(-1, -0.35, 0.35, 1),
+  c("darkblue", "white", "white", "red")
+)
+
+figure_2a <- Heatmap(
+  matrix = class_average_correlations,
+  col = color_correlations,
+  cluster_rows = cluster_cols,
+  cluster_columns = cluster_cols,
+  heatmap_legend_param = list(
+    col_fun = color_correlations,
+    title = "r",
+    at = c(-1, -0.5, 0, 0.5, 1),
+    break_dist = c(1, 0.5, 0.5, 1)
+  ),
+  width = 1
+)
+# plot within cowplot
+figure_2a <- plot_grid(grid.grabExpr(draw(figure_2a)))
+figure_2a
+```
+
+#### Figure 2B-F
+
+Custom PCA plot function, based on the normalization manuscript: Leegwater et al. 2025.
+
+```{r}
+get_pca_df <- function(pca_obj, metadata) {
+  df <- data.frame(pca_obj$variates$X) %>%
+    rownames_to_column("group") %>%
+    left_join(metadata, by = "group")
+  return(df)
+}
+plot_PCA_df <- function(pca_obj, metadata, color_metadata, legend = F,
+                        components = c("PC1", "PC2")) {
+  PC1_var <- round(pca_obj$prop_expl_var$X[[components[1]]], 2) * 100
+  x_label <- str_glue("{components[1]} ({PC1_var}% expl. var)")
+  PC2_var <- round(pca_obj$prop_expl_var$X[[components[2]]], 2) * 100
+  y_label <- str_glue("{components[2]} ({PC2_var}% expl. var)")
+
+  df <- get_pca_df(pca_obj, metadata) %>%
+    arrange(.data[[color_metadata]])
+
+  p <- ggplot(df, aes(
+    x = .data[[components[1]]], y = .data[[components[2]]],
+    color = .data[[color_metadata]]
+  )) +
+    labs(x = x_label, y = y_label) +
+    theme(legend.position = ifelse(legend, "bottom", "none"))
+
+  if (color_metadata %in% c("Morphology", "Morphology_short", "Subtype")) {
+    p <- p + geom_point() +
+      scale_color_manual(values = color_legend_cell_lines)
+  } else if (color_metadata %in% c("ProliferationRate")) {
+    p <- p + geom_point()
+  } else {
+    p <- p + geom_point()
+  }
+  return(p)
+}
+
+forest_plot_loadings <- function(PC_name, highlight = c(), prop_expl_var = NA) {
+  y_limits <- max(abs(PCA_loadings[[PC_name]]))
+  if (is.na(prop_expl_var)) {
+    prop_expl_var <- pca_lipid_classes$prop_expl_var$X[[PC_name]]
+  }
+  class_order <- lipid_categories$lipid_class
+  PCA_loadings %>%
+    left_join(lipid_categories, by = "lipid_class") %>%
+    mutate(lipid_class = factor(lipid_class, levels = class_order)) %>%
+    ggplot(aes(x = lipid_class, y = .data[[PC_name]])) +
+    geom_point() +
+    scale_x_discrete(guide = guide_axis(angle = 90)) +
+    scale_y_continuous(limits = c(-y_limits, y_limits)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(x = NULL, y = str_glue("{PC_name} ({round(prop_expl_var, 2)*100}%)")) ->
+  p
+
+  # Highlight specific lipid classes
+  if (length(highlight) > 0 & is.character(highlight)) {
+    p <- p +
+      aes(
+        color = ifelse(lipid_class %in% highlight, "highlight", "other"),
+        shape = ifelse(lipid_class %in% highlight, "highlight", "other")
+      ) +
+      scale_color_manual(values = c("other" = "darkgrey", "highlight" = "black")) +
+      scale_shape_manual(values = c("other" = 16, "highlight" = 17)) +
+      theme(legend.position = "none")
+  }
+  # Highlight everything above a certain limit
+  if (length(highlight) > 0 & is.numeric(highlight)) {
+    p <- p +
+      aes(
+        color = ifelse(abs(.data[[PC_name]]) > highlight, "highlight", "other"),
+        shape = ifelse(abs(.data[[PC_name]]) > highlight, "highlight", "other")
+      ) +
+      scale_color_manual(values = c("other" = "darkgrey", "highlight" = "black")) +
+      scale_shape_manual(values = c("other" = 16, "highlight" = 17)) +
+      theme(legend.position = "none")
+  }
+  return(p)
+}
+```
+
+#### Load data
+
+```{r}
+heatmap_metadata_data <- read_csv(here(data_dir, "heatmap_metadata_data.csv")) %>%
+  replace_na(list(category = "")) %>%
+  column_to_rownames("metadata_name")
+PCA_loadings <- read_csv(here(data_dir, "PCA_loadings_lipid_classes.csv"))
+load(here(data_dir, "pca_lipid_classes.RData"))
+```
+
+#### Plot
+
+A - the PCA
+
+B - metadata correlations
+
+C - lipid loadings PC1
+
+D - lipid loadings PC2
+
+```{r fig.height=3, fig.width=3}
+colors_heatmap <- circlize::colorRamp2(c(-1, -0.1, 0, 0.1, 1), c("darkblue", "white", "white", "white", "red"))
+
+categories <- heatmap_metadata_data %>%
+  select(category) %>%
+  mutate(category = factor(category, levels = c("Morphology", "Classification", "Subtype", "")))
+
+heatmap_metadata_data <- select(heatmap_metadata_data, -category)
+
+figure_2c <- draw(
+  Heatmap(heatmap_metadata_data,
+    col = colors_heatmap,
+    cluster_rows = F,
+    cluster_columns = F,
+    row_split = categories$category,
+    row_title_side = "right",
+    row_title_gp = gpar(fontsize = text_size),
+    heatmap_legend_param = list(
+      title = "rs",
+      direction = "horizontal"
+    ),
+    border = TRUE
+  ),
+  heatmap_legend_side = "bottom"
+)
+
+figure_2c <- plot_grid(grid.grabExpr(draw(figure_2c)))
+figure_2c
+```
+
+#### Heatmap for lipid classes
+
+Prepare metadata on cell lines for the heatmap
+
+```{r}
+metadata %>%
+  dplyr::select(group, Morphology, Subtype, EMT_score) %>%
+  filter(group %in% lipid_class_averages$cell_line) %>%
+  column_to_rownames("group") -> metadata_heatmap_cells
+dim(metadata_heatmap_cells)
+head(metadata_heatmap_cells)
+```
+
+```{r}
+# sort the columns to match the metadata column order
+df_heatmap <- lipid_class_averages %>%
+  pivot_longer(!cell_line, names_to = "class", values_to = "value") %>%
+  pivot_wider(id_cols = class, names_from = cell_line, values_from = value) %>%
+  column_to_rownames("class") %>%
+  dplyr::select(all_of(rownames(metadata_heatmap_cells)))
+stopifnot(all(rownames(metadata_heatmap_cells) == colnames(df_heatmap)))
+```
+
+```{r}
+column_annotation <- columnAnnotation(
+  Morphology = metadata_heatmap_cells$Morphology,
+  Subtype = metadata_heatmap_cells$Subtype,
+  "EMT score" = metadata_heatmap_cells$EMT_score,
+  col = ann_colors,
+  simple_anno_size = unit(3, "mm")
+)
+
+#  lipid_class_averages
+figure_2f <- grid.grabExpr(draw(
+  Heatmap(
+    matrix = df_heatmap,
+    col = color_heatmap,
+    heatmap_legend_param = list(
+      title = "zscore\nlipid class",
+      direction = "vertical",
+      title_gp = grid::gpar(fontsize = text_size, fontface = 2),
+      labels_gp = grid::gpar(fontsize = text_size),
+      legend_width = unit(6, "cm"),
+      at = c(-2, -1, 0, 1, 2),
+      labels = c("<-2", -1, 0, 1, ">2"),
+      break_dist = c(1, 1, 1, 1)
+    ),
+    top_annotation = column_annotation,
+  )
+))
+plot_grid(figure_2f)
+```
+
+```{r eval=FALSE, fig.height=12, fig.width=14, include=FALSE}
+# for interactive plot viewing
+library(InteractiveComplexHeatmap)
+htShiny(figure_2f)
+```
+
+```{r fig.height=3, fig.width=3}
+figure_2b <- plot_PCA_df(
+  pca_lipid_classes, metadata,
+  legend = T, color_metadata = "Morphology_short"
+) +
+  labs(color = NULL)
+figure_2b
+```
+
+```{r fig.height=3, fig.width=3}
+figure_2d <- forest_plot_loadings("PC1", highlight = 0.2)
+figure_2e <- forest_plot_loadings("PC2", highlight = 0.2)
+figure_2d
+figure_2e
+```
+
+```{r fig.height=1/2.54*22}
+figure_2 <- plot_grid(
+  # ABCD
+  plot_grid(
+    # AB
+    plot_grid(
+      plot_grid(
+        figure_2a,
+        figure_2b,
+        labels = LETTERS[c(1, 2)],
+        rel_widths = c(2, 1)
+      ),
+      # DE
+      plot_grid(
+        figure_2d,
+        figure_2e,
+        labels = LETTERS[c(4, 5)]
+      ),
+      nrow = 2,
+      rel_heights = c(3, 2)
+    ),
+    plot_grid(ggplot(), figure_2c, ncol = 1, rel_heights = c(.1, 1)),
+    labels = c(NA, LETTERS[3]),
+    nrow = 1,
+    rel_widths = c(3, 1)
+  ),
+  # E
+  plot_grid(figure_2f,
+    labels = LETTERS[6]
+  ),
+  ncol = 1,
+  rel_heights = c(3, 2)
+)
+figure_2
+```
+
+```{r fig.height=1/2.54*(12)}
+# Show other PCs in report
+plot_grid(
+  forest_plot_loadings("PC1", highlight = 0.2),
+  forest_plot_loadings("PC2", highlight = 0.2),
+  forest_plot_loadings("PC3", highlight = 0.2),
+  forest_plot_loadings("PC4", highlight = 0.2)
+)
+```
+
+#### Save figure
+
+```{r}
+save_as_png_svg_pdf("Figure_2", figure_2, base_height = 22)
+```
+
+### Figure 3
+
+#### Load data
+
+```{r}
+lipid_class_averages_long <- read_csv(here(data_dir, "lipid_class_averages_long_after_SL_normalization.csv")) %>%
+  mutate(subclass = ifelse(subclass == "unidentified sphingolipid", "unidentified", subclass))
+
+anova_info_lipid_class <- read_csv(here(data_dir, "anova_results_lipid_class_and_Subtype.csv")) %>%
+  mutate(subclass = ifelse(subclass == "unidentified sphingolipid", "unidentified", subclass)) %>%
+  column_to_rownames("subclass")
+```
+
+#### Define functions
+
+```{r}
+abbreviate_subtype <- function(subtype) {
+  if (subtype == "Luminal") {
+    return("L")
+  }
+  if (subtype == "BasalA") {
+    return("Ba")
+  }
+  if (subtype == "BasalB") {
+    return("Bb")
+  }
+  stop("Something wrong with subtype")
+}
+```
+
+```{r}
+calculate_significance_anova <- function(df_subclass, subclass_name, verbose = T, use_group_nr = F) {
+  # calculate whether there is a difference between the three subgroups
+  # Value: the pvalue from the anova and the aov object
+
+  # the anova is here calculated but not used, because I want to use the multiple-testing-corrected anovas from the previous code chunk
+  if (use_group_nr) {
+    df_subclass <- mutate(df_subclass, group_nr = factor(as.numeric(Subtype)))
+    result <- lm(subclass_mean ~ group_nr, data = df_subclass)
+  } else {
+    result <- lm(subclass_mean ~ Subtype, data = df_subclass)
+  }
+  result_anova <- anova(result)
+  result_aov <- aov(result)
+  padj_anova <- anova_info_lipid_class[subclass_name, "padj"]
+
+  if (verbose) {
+    print(str_glue("{subclass_name} Anova result Pr(>F) with BH multiple testing correction is {padj_anova}"))
+  }
+
+  return(list(pvalue_anova = padj_anova, result_aov = result_aov))
+}
+```
+
+```{r}
+get_significance_letters <- function(significance_anova, df_subclass, use_group_nr = F) {
+  # calculate which groups are different using the TukeyHSD function on an aov object
+  # Value: the letters. different letters mean a significant difference between the groups
+
+  if (significance_anova$pvalue_anova > 0.05) {
+    # No significant difference, so all three groups get the same letter
+    significance_letters <- data.frame(
+      "Subtype" = levels(df_subclass$Subtype),
+      "Letters" = rep("a", length(levels(df_subclass$Subtype)))
+    )
+  } else {
+    # so there is a difference. Now, which ones are different?
+    significance_levels <- TukeyHSD(significance_anova$result_aov)
+    significance_letters <- multcompLetters(significance_levels[[1]][, "p adj"], threshold = 0.05)
+    significance_letters <- data.frame(Letters = significance_letters$Letters) %>%
+      rownames_to_column("Subtype")
+    if (use_group_nr) {
+      significance_letters %>%
+        rename(group_nr = Subtype) %>%
+        left_join(
+          data.frame(
+            group_nr = c("1", "2", "3"),
+            Subtype = c("L", "Ba", "Bb")
+          ),
+          by = "group_nr"
+        ) %>%
+        select(-group_nr) -> significance_letters
+    }
+  }
+  # Prepare to put on plot. For this, find the max subclass value per group and put the letter a bit above that
+  # And sort letters on the order of the factor
+  subclass_range <- max(df_subclass$subclass_mean) - min(df_subclass$subclass_mean)
+  significance_letters %>%
+    mutate(Subtype = factor(Subtype, levels = c("L", "Ba", "Bb"))) %>%
+    left_join(
+      df_subclass %>%
+        group_by(Subtype) %>%
+        summarize(y = max(subclass_mean) + 0.1 * subclass_range),
+      by = "Subtype"
+    ) -> letters_df
+
+  return(letters_df)
+}
+```
+
+```{r}
+plot_violin_alphabetical <- function(subclass_name, use_full_name = F) {
+  # check if there is a difference between groups, add these as letters to groups, and create a violin plot
+  # Value: the plot object
+
+  # subset data
+  df_subclass <- lipid_class_averages_long %>%
+    filter(subclass == subclass_name) %>%
+    left_join(
+      dplyr::select(metadata, group, Subtype) %>% unique(),
+      by = "group"
+    ) %>%
+    rowwise() %>%
+    mutate(Subtype = abbreviate_subtype(Subtype)) %>%
+    mutate(Subtype = factor(Subtype, levels = c("L", "Ba", "Bb"))) %>%
+    dplyr::select(group, Subtype, subclass_mean)
+
+  # get significance letters
+  significance_anova <- calculate_significance_anova(df_subclass, subclass_name, use_group_nr = T)
+  letters_df <- get_significance_letters(significance_anova, df_subclass, use_group_nr = T)
+
+  if (use_full_name) {
+    df_subclass <- df_subclass %>%
+      rowwise() %>%
+      mutate(subclass = full_lipid(subclass_name))
+  } else {
+    df_subclass <- df_subclass %>%
+      rowwise() %>%
+      mutate(subclass = subclass_name)
+  }
+  # make plot
+  df_subclass %>%
+    left_join(letters_df, by = "Subtype") %>%
+    arrange(Subtype) %>%
+    ggplot(aes(
+      x = Subtype, y = subclass_mean,
+      fill = Subtype
+    )) +
+    facet_wrap(~subclass, scales = "free_y", nrow = 2) +
+    theme(legend.position = "none") +
+    labs(y = "class average", x = NULL) +
+    scale_fill_manual(values = color_legend_Subtype) +
+    geom_violin(draw_quantiles = 0.5) +
+    geom_jitter(aes(alpha = 0.5), width = 0.2, height = 0) +
+    geom_text(aes(x = Subtype, y = y, label = Letters), data = letters_df) -> p
+  return(p)
+}
+```
+
+#### Plot
+
+```{r fig.height=1/2.54*12}
+print(colnames(lipid_class_averages))
+
+lipids_to_plot <- c("Chol. esters", "PE", "PI", "unidentified", "SM", "PS")
+set.seed(5) # for geom_jitter
+lapply(lipids_to_plot, function(x) plot_violin_alphabetical(x)) -> plot_list
+
+plot_list <- lapply(plot_list, function(p) p <- p + labs(y = NULL))
+n_col <- 3
+plot_list[seq(1, length(plot_list), by = n_col)] <- lapply(
+  plot_list[seq(1, length(plot_list), by = n_col)],
+  function(p) p <- p + labs(y = "class average")
+)
+figure_3 <- plot_grid(
+  plotlist = plot_list,
+  ncol = n_col,
+  labels = LETTERS[1:length(plot_list)]
+)
+figure_3
+```
+
+#### Save plot
+
+```{r}
+save_as_png_svg_pdf(figure_3, figure_name = "Figure_3", base_height = 2 / 3 * page_width)
+```
+
+### Figure 4
+
+Plot design idea is:
+
+-   A: fold changes or directed p values epithelial proliferation and mesenchymal proliferation to show similarities and differences
+-   B: lipids associated with epithelial proliferation per class
+-   C: PI, PC, PE and PS with colored side chains
+
+#### Load data
+
+```{r}
+E_M_prol_lipids <- read_csv(here(data_dir, "Supplementary_Table_4_lipid_proliferation.csv"))
+head(E_M_prol_lipids)
+```
+
+#### 4A cor E and M proliferation
+
+```{r fig.height=4, fig.width=4}
+use_FDR <- T
+sig_cutoff <- 0.1
+
+E_M_prol_lipids %>%
+  ggplot(aes(x = coefficient_prol_E, y = coefficient_prol_M, color = color_FDR)) +
+  geom_point(size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
+  scale_color_manual(
+    values = c(
+      "not sig" = "#999999", "sig neg" = "#56B4E9", "sig pos" = "#D55E00",
+      "almost sig neg" = "#B5DEF5", "almost sig pos" = "#FFA153"
+    ),
+    name = NULL,
+    labels = c(
+      "not sig" = "Not significant",
+      "sig neg" = str_glue("Neg. FDR < {sig_cutoff}"),
+      "sig pos" = str_glue("Pos. FDR < {sig_cutoff}"),
+      "almost sig neg" = str_glue("Neg. p < {sig_cutoff}"),
+      "almost sig pos" = str_glue("Pos. p < {sig_cutoff}")
+    )
+  ) +
+  labs(x = "Proliferation coefficient E", y = "Proliferation coefficient M") ->
+figure_4a
+figure_4a
+```
+
+#### 4B Forest plot
+
+##### Define forest plot for Figure 4 and 6
+
+Code based on: [Holbaek_lipidomic.Rmd](https://github.com/yunhuanghy/Lipidomic/blob/main/Holbaek_lipidomic.Rmd)
+
+```{r}
+forest_plot <- function(df_lipids, x_label, use_FDR = T, sig_cutoff = 0.1, logFC_column = "logFC") {
+  df_lipids <- df_lipids %>%
+    mutate(subclass = ifelse(subclass == "unidentified sphingolipid", "unidentified", subclass)) %>%
+    left_join(lipid_categories, by = c("subclass" = "lipid_class"))
+
+  df_lipids <- df_lipids %>%
+    dplyr::rename(
+      FDR = ifelse(use_FDR, "adj.P.Val", "P.Value"),
+      coefficient = logFC_column
+    )
+
+  forest_class <- df_lipids %>%
+    ggplot(aes(x = coefficient, y = subclass)) +
+    geom_point(aes(color = color_FDR),
+      position = position_jitter(width = 0.02, height = 0.2),
+      size = 1 # size = 0.3
+    ) +
+    scale_color_manual(
+      values = color_legend_significance,
+      name = NULL,
+      labels = c(
+        "not sig" = "Not significant",
+        "sig neg" = ifelse(use_FDR, str_glue("Neg. FDR < {sig_cutoff}"), str_glue("Neg. p < {sig_cutoff}")),
+        "sig pos" = ifelse(use_FDR, str_glue("Pos. FDR < {sig_cutoff}"), str_glue("Pos. p < {sig_cutoff}")),
+        "almost sig neg" = "Neg. p < 0.05", "almost sig pos" = "Pos. p < 0.05"
+      )
+    ) +
+    scale_y_discrete(limits = rev) +
+    labs(y = "", x = x_label) +
+    geom_vline(
+      xintercept = 0,
+      color = "black",
+      linetype = "dashed",
+      alpha = .4
+    ) +
+    theme(strip.placement = "outside") +
+    theme(
+      panel.grid.major.y = element_line(color = "grey80"),
+      panel.grid.minor.y = element_line(color = "grey80"),
+      panel.border = element_rect(colour = "black", size = 0.4),
+      strip.background.y = element_rect(
+        colour = "black",
+        fill = "white",
+        size = 0.4
+      )
+    ) +
+    facet_grid(
+      rows = vars(lipid_category),
+      scales = "free",
+      space = "free",
+      switch = "y"
+    )
+
+  return(forest_class)
+}
+
+set.seed(5) # for geom_jitter
+E_M_prol_lipids %>%
+  dplyr::rename(adj.P.Val = adj.P.Val_E, P.Value = P.Value_E) %>%
+  forest_plot("Proliferation coefficient E", use_FDR, sig_cutoff,
+    logFC_column = "coefficient_prol_E"
+  ) ->
+figure_4b
+figure_4b
+```
+
+```{r fig.height=1/2.54*2}
+legend_figure_4b <- get_legend(figure_4b, "bottom", n_row = 2)
+ggdraw(legend_figure_4b)
+```
+
+#### 4C
+
+```{r}
+phospholipids_plot <- function(df_coefficients, coefficient, x_label) {
+  df_coefficients %>%
+    filter(subclass %in% c("PC", "PS", "PE", "PI")) %>%
+    left_join(lipid_categories, by = c("subclass" = "lipid_class")) %>%
+    dplyr::rename(FDR = ifelse(use_FDR, "adj.P.Val", "P.Value"), coefficient = all_of(coefficient)) %>%
+    mutate(to_color = ifelse(!subclass %in% names(color_legend_side_chains) & str_detect(identifiers, "20:3"), "20:3", "nocolor")) %>%
+    mutate(to_color = ifelse(!subclass %in% names(color_legend_side_chains) & str_detect(identifiers, "20:4"), "20:4", to_color)) %>%
+    mutate(to_color = ifelse(!subclass %in% names(color_legend_side_chains) & str_detect(identifiers, "17:0"), "17:0", to_color)) %>%
+    mutate(to_color = ifelse(!subclass %in% names(color_legend_side_chains) & str_detect(identifiers, "20:1"), "20:1", to_color)) %>%
+    mutate(to_color = factor(to_color, levels = names(color_legend_side_chains))) %>%
+    arrange(to_color) -> df_for_plot
+  x_max <- max(abs(df_for_plot$coefficient))
+
+  p <-
+    df_for_plot %>%
+    ggplot(aes(x = coefficient, y = -log10(FDR), color = to_color, label = identifiers)) +
+    geom_hline(yintercept = -log10(sig_cutoff), linetype = "dashed", color = "grey") +
+    geom_point(size = 1) +
+    theme(
+      strip.background.x = element_rect(
+        colour = "black",
+        fill = "white",
+        size = 0.4
+      )
+    ) +
+    labs(
+      x = x_label,
+      y = ifelse(use_FDR, expression(-log[10](FDR)), expression(-log[10](p.value))),
+      color = "FA",
+    ) +
+    scale_x_continuous(limits = c(-x_max, x_max)) +
+    scale_color_manual(
+      values = color_legend_side_chains,
+      breaks = setdiff(unique(df_for_plot$to_color), "nocolor")
+    ) +
+    facet_wrap(~subclass, ncol = 2)
+  return(p)
+}
+
+figure_4c <- E_M_prol_lipids %>%
+  dplyr::rename(identifiers = identifiers, adj.P.Val = adj.P.Val_E) %>%
+  phospholipids_plot(
+    coefficient = "coefficient_prol_E",
+    x_label = "Proliferation coefficient E"
+  )
+figure_4c
+```
+
+```{r fig.height=1/2.54*2}
+legend_figure_4c <- get_legend(figure_4c, "bottom", n_row = 2)
+ggdraw(legend_figure_4c)
+```
+
+#### Combine plots
+
+```{r fig.height=1/2.54*18}
+figure_4 <- plot_grid(
+  plot_grid(
+    # The plot
+    plot_grid(figure_4a, figure_4c,
+      ncol = 1, labels = LETTERS[c(1, 3)]
+    ),
+    plot_grid(figure_4b, labels = LETTERS[2]),
+    nrow = 1,
+    rel_widths = c(2, 3)
+  ),
+  # The legends
+  plot_grid(
+    ggdraw(legend_figure_4c),
+    ggdraw(legend_figure_4b),
+    rel_widths = c(2, 3),
+    nrow = 1
+  ),
+  rel_heights = c(10, 1),
+  ncol = 1
+)
+figure_4
+```
+
+#### Save plot
+
+```{r}
+save_as_png_svg_pdf(figure_4, figure_name = "Figure_4", base_height = 12)
+```
+
+### Figure 5
+
+-   A: trend of triglyceride class averages
+-   B: forest bar plots
+-   C: saturation in triglycerides
+-   D: phospholipid alterations
+
+#### Load data
+
+```{r}
+lipid_time_differences_48h <- read_csv(here(data_dir, "Supplementary_Table_5_lipid_time_differences_48h.csv"))
+lipid_class_averages_over_time <- read_csv(here(data_dir, "lipid_class_averages_scaledT0_over_time.csv"))
+```
+
+#### 5A. Class averages over time
+
+```{r fig.height=3, fig.width=3}
+figure_5a <- lipid_class_averages_over_time %>%
+  filter(subclass == "TG") %>%
+  ggplot(aes(x = as.factor(Time), y = subclass_mean, group = Subject)) +
+  geom_line(aes(linetype = cell_line)) +
+  geom_errorbar(aes(ymin = subclass_mean - subclass_sd, ymax = subclass_mean + subclass_sd, linetype = cell_line),
+    width = .2,
+    position = position_dodge(0.02)
+  ) +
+  labs(
+    y = "TG class average",
+    x = "Time (h)",
+    linetype = "cell line"
+  ) +
+  scale_linetype_manual(values = c("dashed", "dotted", "solid")) +
+  geom_point(size = 1) +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.8, 0.9)
+  )
+
+figure_5a
+```
+
+#### 5B. Lipids changing over time
+
+General settings for this plot
+
+```{r}
+fold_change_label <- "log2 fold change 48h/0h"
+```
+
+```{r}
+set.seed(5) # for geom_jitter
+figure_5b <- forest_plot(lipid_time_differences_48h, x_label = fold_change_label, use_FDR = T, sig_cutoff = 0.1)
+
+legend_figure_5b <- get_legend(figure_5b, "bottom", n_row = 1)
+ggdraw(legend_figure_5b)
+
+figure_5b <- plot_grid(figure_5b, legend_figure_5b, ncol = 1, rel_heights = c(1, 0.1))
+figure_5b
+```
+
+#### 5C. TG over time
+
+```{r fig.height=3, fig.width=3}
+figure_5c <- lipid_time_differences_48h %>%
+  filter(subclass == "TG") %>%
+  ggplot(aes(x = total_chain_length, y = logFC, color = saturation, shape = saturation)) +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("SFA" = "black", "MUFA" = "grey40", "PUFA" = "grey")) +
+  scale_shape_manual(values = c("SFA" = 16, "MUFA" = 17, "PUFA" = 3)) +
+  labs(
+    x = "TG length",
+    y = fold_change_label
+  ) +
+  scale_y_continuous(limits = c(NA, 0)) +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.8, 0.9)
+  )
+figure_5c
+```
+
+#### 5F. PI-PE-PC-PS side chains plot
+
+```{r fig.height=3, fig.width=3}
+figure_5f <- lipid_time_differences_48h %>%
+  phospholipids_plot(
+    coefficient = "logFC",
+    x_label = fold_change_label
+  )
+figure_5f
+```
+
+```{r fig.height=1/2.54*2}
+legend_figure_5f <- get_legend(figure_5f, "bottom", n_row = 2, justification = "right")
+ggdraw(legend_figure_5f)
+```
+
+#### 5D lipid droplet quantification
+
+```{r}
+lipidtox_averages <- read_csv(here(data_dir, "cell_line_averaged_lipidtox.csv"))
+
+figure_5d <- lipidtox_averages %>%
+  ggplot(aes(x = as.factor(Time), y = mean_scaled_lipidtox, group = cell_line)) +
+  geom_line(aes(linetype = cell_line)) +
+  geom_errorbar(aes(ymin = mean_scaled_lipidtox - sd_lipidtox, ymax = mean_scaled_lipidtox + sd_lipidtox, linetype = cell_line),
+    width = .2,
+    position = position_dodge(0.02)
+  ) +
+  labs(
+    y = "Normalized lipid droplet abundance",
+    x = "Time (h)",
+    linetype = "cell line"
+  ) +
+  scale_linetype_manual(values = c("dashed", "dotted", "solid")) +
+  geom_point(size = 1) +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.8, 0.9)
+  )
+figure_5d
+```
+
+#### 5E
+
+6E is an image (tiff/pdf and needs to be imported)
+
+```{r}
+figure_5e <- here(data_dir, "lipidtox_image.tiff")
+
+figure_5e <- ggdraw() +
+  draw_image(figure_5e)
+figure_5e
+```
+
+#### Combine plots
+
+```{r fig.height=1/2.54*18}
+figure_5 <- plot_grid(
+  # Top half
+  plot_grid(
+    plot_grid(figure_5a, figure_5c, ncol = 1, labels = LETTERS[c(1, 3)]),
+    plot_grid(figure_5b, labels = LETTERS[2]),
+    nrow = 1,
+    rel_widths = c(1, 2)
+  ),
+  # Bottom half
+  # right column
+  plot_grid(
+    figure_5d,
+    plot_grid(figure_5e, legend_figure_5f, ncol = 1, rel_heights = c(1, 0.2)),
+    figure_5f,
+    nrow = 1,
+    labels = LETTERS[4:6]
+  ),
+  nrow = 2,
+  rel_heights = c(2, 1)
+)
+figure_5
+```
+
+#### Save plot
+
+```{r}
+save_as_png_svg_pdf(figure_5, figure_name = "Figure_5")
+```
+
+## Supplementary Figures
+
+### Supplementary Figure 1
+
+The unidentified sphingolipid
+
+#### Load data
+
+```{r}
+EVSAT <- read_excel(here(data_dir, "unknown_sphingolipid_example.xlsx"),
+  sheet = "batch2_pos-1905AAB_0101_A1"
+)
+MDAMB157 <- read_excel(here(data_dir, "unknown_sphingolipid_example.xlsx"),
+  sheet = "batch2_pos-1905AAB_0233_A1"
+)
+```
+
+#### Build plot
+
+```{r fig.height=1/2.54*18}
+plot_layers <- list(
+  geom_rect(xmin = 4.2, xmax = 4.4, ymin = 0, ymax = Inf, fill = "grey90"),
+  geom_rect(xmin = 4.6, xmax = 4.9, ymin = 0, ymax = Inf, fill = "grey60"),
+  annotate("text",
+    x = Inf, y = Inf,
+    label = "Q1=810.9\nQ3=264.4\nce=15",
+    vjust = 1, hjust = 1
+  ),
+  geom_line()
+)
+figure_sup_1 <- plot_grid(
+  ggplot(EVSAT, aes(x = `Time (min)`, y = Intensity)) + plot_layers,
+  ggplot(MDAMB157, aes(x = `Time (min)`, y = Intensity)) + plot_layers,
+  ncol = 1,
+  labels = LETTERS[1:2]
+)
+figure_sup_1
+```
+
+#### Save plot
+
+```{r}
+save_as_png_svg_pdf("Supplementary Figure 1", figure_sup_1, base_height = 10)
+```
+
+### Supplementary Figure 2
+
+All subtype plots from Figure 3
+
+```{r}
+lapply(
+  lipid_categories$lipid_class,
+  function(x) plot_violin_alphabetical(x)
+) -> plot_list
+
+plot_list <- lapply(plot_list, function(p) p <- p + labs(y = NULL))
+# give leftmost plot in each row a Y axis label
+n_col <- 5
+plot_list[seq(1, length(plot_list), by = n_col)] <- lapply(
+  plot_list[seq(1, length(plot_list), by = n_col)],
+  function(p) p <- p + labs(y = "class average")
+)
+plot_grid(plotlist = plot_list, ncol = n_col) -> figure_sup_2
+figure_sup_2
+```
+
+#### Save plot
+
+```{r}
+save_as_png_svg_pdf("Supplementary_Figure_2", figure_sup_2, base_height = 18)
+```
+
+### Supplementary Figure 3
+
+```{r}
+saturation_percentages <- read_csv(here(data_dir, "saturation_percentages.csv")) %>%
+  arrange(Morphology) %>%
+  mutate(saturation = factor(saturation, levels = c("SFA", "MUFA", "PUFA")))
+cell_line_order <- unique(saturation_percentages$cell_line)
+# Sort by morphology
+saturation_percentages <- saturation_percentages %>%
+  mutate(cell_line = factor(cell_line, levels = cell_line_order))
+```
+
+```{r fig.height=1/2.54*12}
+p1 <- saturation_percentages %>%
+  mutate(Saturation = saturation) %>%
+  ggplot(aes(y = percentage, x = cell_line)) +
+  geom_bar(aes(fill = Saturation), position = "stack", stat = "identity") +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  # labs(x = "Cell line", y = "Percentage", fill = "Saturation") +
+  facet_wrap(~subclass, ncol = 1) +
+  theme(
+    axis.title.x = element_blank(), axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  scale_fill_manual(name = "Saturation", values = color_legend_saturation)
+p1
+# Annotation plot
+p2 <- saturation_percentages %>%
+  ggplot() +
+  geom_tile(aes(x = cell_line, y = 1, fill = Morphology),
+    height = 0.05, inherit.aes = FALSE
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    axis.title.y = element_blank(), axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  scale_fill_manual(name = "Morphology", values = color_legend_cell_lines)
+p2
+
+figure_sup_3 <- plot_grid(
+  plot_grid(p1, p2,
+    ncol = 1,
+    align = "v",
+    rel_heights = c(1, 0.25)
+  ),
+  plot_grid(
+    # the legends
+    get_legend(p1, "right", n_row = 5, justification = "left"),
+    get_legend(p2, "right", n_row = 5, justification = "left"),
+    ncol = 1
+  ),
+  rel_widths = c(1, 0.13)
+)
+figure_sup_3
+```
+
+```{r}
+save_as_png_svg_pdf("Supplementary_Figure_3", figure_sup_3, base_height = 12)
+```
+
+## Additional information
+
+### Citation of versions
+
+```{r}
+knitr::write_bib(c(.packages()), here(output_dir, "packages_figures.bib"))
+```
+
+### Session info
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,1253 @@
+---
+title: "Calculations to get all data for all figures"
+author: "Hanneke Leegwater"
+date: "`r Sys.Date()`"
+engine: knitr
+format: 
+  html:
+    self-contained: true
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    df-print: kable
+---
+
+## Introduction
+
+This Quarto script reproduces all calculations performed for the manuscript "Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes".
+
+## Preparations
+
+### Load R libraries
+
+```{r}
+library(tidyverse)
+library(writexl)
+library(here)
+library(limma)
+library(DESeq2)
+library(gprofiler2)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+# Custom functions
+source(here("code/functions/lipid_overrepresentation.R"))
+source(here("code/functions/calculate_lipid_class_average.R"))
+source(here("code/functions/duplicate_control_T0_samples.R"))
+source(here("code/functions/scale_lipid_to_T0is0.R"))
+```
+
+### Define location of data
+
+The raw data can be found in data/biology_manuscript_files.
+
+```{r}
+data_dir <- here("data/biology_manuscript_files")
+str_glue("Using data from {data_dir}")
+stopifnot(dir.exists(data_dir))
+```
+
+### Create output directory
+
+```{r}
+datestamp <- str_remove_all(Sys.Date(), "-")
+output_dir <- here("manuscript_biology", str_glue("{datestamp}_data_for_figures"))
+str_glue("Output directory path is {output_dir}")
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+output_dir
+```
+
+### Define how to save files
+
+Change write_csv so that it always writes na as "".
+And print output file path.
+
+```{r}
+write_csv <- function(data, file, ...) {
+  readr::write_csv(data, file, na = "", ...)
+  print(stringr::str_glue("Dataset saved to {file}"))
+}
+```
+
+## Open metadata
+
+```{r}
+# Sample metadata
+metadata <- read_csv(here(data_dir, "metadata_cell_lines.csv")) %>%
+  mutate(Morphology_short = str_extract(Morphology, "^\\w", )) %>%
+  mutate(Morphology = str_replace(Morphology, "_", "-"))
+
+print(dim(metadata))
+head(metadata)
+write_csv(metadata, here(output_dir, "metadata.csv"))
+
+# Information on lipid classes
+lipid_info <- read_csv(here(data_dir, "lipid_info.csv"))
+
+print(dim(lipid_info))
+head(lipid_info)
+write_csv(lipid_info, here(output_dir, "lipid_info.csv"))
+```
+
+## Figures
+
+### Figure 1
+
+#### Load data
+
+```{r}
+data_cell_lines <- read_csv(here(data_dir, "raw_counts_2DRNAseq_celllines_20250212.csv"))
+gene_identifier_table <- read_csv(here(data_dir, "gene_identifier_table_unique.csv"),
+  col_types = cols(NCBI_Gene_ID = col_character())
+)
+```
+
+#### Get GO metabolic process
+
+```{r}
+lipid_metabolic_process <- AnnotationDbi::select(org.Hs.eg.db,
+  keys = "GO:0006629", columns = c("SYMBOL"), keytype = "GOALL"
+) %>%
+  dplyr::select(GOALL, SYMBOL) %>%
+  distinct() %>%
+  dplyr::rename(gene_symbol = SYMBOL)
+write_csv(lipid_metabolic_process, here(output_dir, "lipid_metabolic_process_GO.0006629.csv"))
+```
+
+#### Run differential expression analysis
+
+Prepare data: keep only genes that have more than 1 cpm in at least 5 cell lines.
+Amount of million reads per sample is:
+
+```{r}
+data_cell_lines %>%
+  dplyr::select(-EnsemblID) %>%
+  colSums() %>%
+  lapply(function(x) round(x / 1E6, 1)) %>%
+  unlist() %>%
+  sort()
+```
+
+So approximately 1 CPM is about at least 10 counts.
+Keep genes that:
+
+-   have a count \> 10 in 5 or more cell lines, and
+-   have a mean count more than 1.
+
+```{r}
+## Prepare columns and rows
+column_info <- metadata %>%
+  dplyr::select(group, Morphology) %>%
+  unique() %>%
+  filter(Morphology != "treatment_study") %>%
+  filter(group %in% colnames(data_cell_lines)) %>%
+  mutate(Morphology = str_replace_all(Morphology, "-", "_")) %>%
+  mutate(Morphology = factor(Morphology))
+dim(column_info)
+head(column_info)
+
+all_counts <- column_to_rownames(data_cell_lines, "EnsemblID") %>%
+  dplyr::select(all_of(column_info$group)) %>%
+  filter(rowSums(. > 10) > 5)
+dim(all_counts)
+all_counts <- all_counts %>%
+  filter(rowMeans(.) > 1)
+dim(data_cell_lines)
+dim(all_counts)
+head(all_counts)
+
+## order of the metadata file has to be the same as the count file. Check if this is true:
+identical(column_info$group, colnames(all_counts))
+stopifnot(identical(column_info$group, colnames(all_counts)))
+```
+
+Perform differential expression analysis:
+
+```{r}
+dds <- DESeqDataSetFromMatrix(
+  countData = all_counts,
+  colData = column_info,
+  design = ~Morphology
+)
+
+dds <- estimateSizeFactors(dds)
+dds <- DESeq(dds)
+```
+
+```{r}
+file_name <- here(output_dir, "dds_object_Morphology.RData")
+print(str_glue("Saving deseq object to {file_name}"))
+save(dds, file = file_name)
+
+## Extract normalized counts
+all_counts_norm <- as.data.frame(counts(dds, normalized = TRUE)) %>%
+  rownames_to_column("EnsemblID")
+
+dplyr::select(gene_identifier_table, NCBI_Gene_ID, Ensembl_gene_ID, gene_symbol) %>%
+  right_join(all_counts_norm, by = c("Ensembl_gene_ID" = "EnsemblID")) %>%
+  write_csv(here(output_dir, "normalized_counts.csv"))
+
+all_counts_norm_log2 <- all_counts_norm %>%
+  left_join(
+    dplyr::select(gene_identifier_table, Ensembl_gene_ID, gene_symbol),
+    by = c("EnsemblID" = "Ensembl_gene_ID")
+  ) %>%
+  dplyr::select(-EnsemblID) %>%
+  mutate(across(where(is.numeric), function(x) log2(x + 1)))
+
+all_counts_norm_log2 %>%
+  write_csv(here(output_dir, "all_counts_norm_log2.csv"))
+```
+
+Study the results and print statistics:
+
+```{r}
+resultsNames(dds) # lists the coefficients
+
+lipid_DEGs <- results(dds, name = "Morphology_Mesenchymal_like_vs_Epithelial_like") %>%
+  data.frame() %>%
+  arrange(padj) %>%
+  rownames_to_column("EnsemblID") %>%
+  left_join(
+    dplyr::select(
+      gene_identifier_table, Ensembl_gene_ID, gene_symbol,
+      NCBI_Gene_ID, HGNC_ID, gene_name
+    ),
+    by = c("EnsemblID" = "Ensembl_gene_ID")
+  ) %>%
+  filter(gene_symbol %in% lipid_metabolic_process$gene_symbol)
+
+write_csv(lipid_DEGs, here(output_dir, "lipid_DEGs_MvsE.csv"))
+```
+
+Information on metadata for in the manuscript:
+
+```{r}
+dim(column_info)
+
+table(column_info$Morphology)
+```
+
+```{r}
+str_glue("All genes in list of GO:0006629 lipid metabolic process: {nrow(lipid_metabolic_process)}")
+str_glue("Total nr of genes studied in differential gene expression analysis: {nrow(lipid_DEGs)}")
+str_glue("Higher in mesenchymal-like, logFC > 0: {nrow(filter(lipid_DEGs, log2FoldChange > 0))}")
+str_glue("Higher in mesenchymal-like, logFC > 1: {nrow(filter(lipid_DEGs, log2FoldChange > 1))}")
+str_glue("Higher in mesenchymal-like, logFC > 0 & padj < 0.05: {nrow(filter(lipid_DEGs, log2FoldChange >0, padj < 0.05))}")
+str_glue("Higher in mesenchymal-like, logFC > 0 & padj < 0.01: {nrow(filter(lipid_DEGs, log2FoldChange >0, padj < 0.01))}")
+str_glue("Higher in mesenchymal-like, logFC > 1 & padj < 0.05: {nrow(filter(lipid_DEGs, log2FoldChange >1, padj < 0.05))}")
+str_glue("Higher in mesenchymal-like, logFC > 1 & padj < 0.01: {nrow(filter(lipid_DEGs, log2FoldChange >1, padj < 0.01))}")
+
+str_glue("Higher in epithelial-like, logFC > 0: {nrow(filter(lipid_DEGs, log2FoldChange < 0))}")
+str_glue("Higher in epithelial-like, logFC > 1: {nrow(filter(lipid_DEGs, log2FoldChange < -1))}")
+str_glue("Higher in epithelial-like, logFC > 0 & padj < 0.05: {nrow(filter(lipid_DEGs, log2FoldChange < 0, padj < 0.05))}")
+str_glue("Higher in epithelial-like, logFC > 0 & padj < 0.01: {nrow(filter(lipid_DEGs, log2FoldChange < 0, padj < 0.01))}")
+str_glue("Higher in epithelial-like, logFC > 1 & padj < 0.05: {nrow(filter(lipid_DEGs, log2FoldChange < -1, padj < 0.05))}")
+str_glue("Higher in epithelial-like, logFC > 1 & padj < 0.01: {nrow(filter(lipid_DEGs, log2FoldChange < -1, padj < 0.01))}")
+```
+
+Check CD36.
+In this dataset, values below 10 are "lower than 1 CPM".
+
+```{r}
+lipid_DEGs %>%
+  filter(gene_symbol == "CD36")
+
+all_counts_norm %>%
+  filter(EnsemblID == "ENSG00000135218") %>%
+  pivot_longer(!EnsemblID) %>%
+  mutate(more_than_1_CPM = ifelse(value > 10, "yes", "no")) %>%
+  pull(more_than_1_CPM) %>%
+  table()
+```
+
+#### Perform enrichment analysis
+
+See https://cran.r-project.org/web/packages/gprofiler2/vignettes/gprofiler2.html#gene-list-functional-enrichment-analysis-with-gost for details
+
+```{r}
+lipid_DEGs_more_M <- lipid_DEGs %>%
+  filter(padj < 0.01, log2FoldChange > 1) %>%
+  filter(!is.na(gene_symbol)) %>%
+  pull(gene_symbol)
+length(lipid_DEGs_more_M)
+
+lipid_DEGs_more_E <- lipid_DEGs %>%
+  filter(padj < 0.01, log2FoldChange < -1) %>%
+  filter(!is.na(gene_symbol)) %>%
+  pull(gene_symbol)
+length(lipid_DEGs_more_E)
+lipid_DEGs_more_E
+```
+
+The next code chunk requires an internet connection.
+
+```{r}
+enrichment_results <- gost(
+  list(
+    "more_M" = lipid_DEGs_more_M,
+    "more_E" = lipid_DEGs_more_E
+  ),
+  organism = "hsapiens", ordered_query = TRUE, correction_method = "gSCS",
+  evcodes = TRUE
+)
+
+save(enrichment_results,
+  file = here(output_dir, str_glue("gprofiler_enrichment_object.RData"))
+)
+write_csv(
+  enrichment_results$result,
+  here(output_dir, "gprofiler_enrichment_results.csv")
+)
+```
+
+```{r}
+head(enrichment_results$result)
+```
+
+```{r}
+names(enrichment_results$meta)
+
+names(enrichment_results$meta)
+enrichment_results$meta$version
+enrichment_results$meta$timestamp
+
+names(enrichment_results$meta$result_metadata)
+names(enrichment_results$meta$query_metadata)
+```
+
+```{r}
+# Compare E and M
+intersect(
+  filter(enrichment_results$result, query == "more_E") %>% pull(term_name),
+  filter(enrichment_results$result, query == "more_M") %>% pull(term_name)
+) %>%
+  head(10)
+# setdiffs
+setdiff(
+  filter(enrichment_results$result, query == "more_E") %>% pull(term_name),
+  filter(enrichment_results$result, query == "more_M") %>% pull(term_name)
+) %>%
+  head(10)
+setdiff(
+  filter(enrichment_results$result, query == "more_M") %>% pull(term_name),
+  filter(enrichment_results$result, query == "more_E") %>% pull(term_name)
+) %>%
+  head(10)
+
+enrichment_results$result %>%
+  filter(query == "more_M") %>%
+  filter(str_detect(term_name, "phospholipid")) %>%
+  dplyr::select(
+    term_name, term_id, term_size, query_size, intersection_size,
+    p_value, precision
+  )
+
+enrichment_results$result %>%
+  arrange(p_value) %>%
+  filter(term_size < 10) %>%
+  head(10)
+```
+
+Print info on specific pathways
+
+```{r}
+GO_names <- c(
+  "phospholipid metabolic process",
+  "fatty acid metabolic process",
+  "lipid transport",
+  "sphingolipid metabolic process"
+)
+enrichment_results$result %>%
+  filter(term_name %in% GO_names) %>%
+  relocate(
+    term_name, query, precision,
+    term_size, intersection_size
+  ) %>%
+  dplyr::select(-evidence_codes) %>%
+  arrange(term_name)
+```
+
+```{r}
+GO_lookup <- enrichment_results$result %>%
+  dplyr::select(term_name, term_id) %>%
+  filter(term_name %in% GO_names) %>%
+  distinct()
+GO_lookup
+```
+
+```{r}
+results_GO <- AnnotationDbi::select(org.Hs.eg.db,
+  keys = GO_lookup$term_id,
+  columns = c("SYMBOL"), keytype = "GOALL"
+) %>%
+  dplyr::select(GOALL, SYMBOL) %>%
+  distinct()
+write_csv(results_GO, here(output_dir, "GO_terms_genes.csv"))
+```
+
+```{r}
+pheatmap_annotation <- left_join(dplyr::select(lipid_DEGs, gene_symbol),
+  (results_GO %>%
+    mutate(included = 1) %>%
+    pivot_wider(id_cols = SYMBOL, names_from = GOALL, values_from = included)
+  ),
+  by = c("gene_symbol" = "SYMBOL")
+) %>%
+  column_to_rownames("gene_symbol") %>%
+  mutate(across(starts_with("GO"), ~ replace_na(., 0))) %>%
+  mutate(across(starts_with("GO"), ~ factor(., levels = c("0", "1"))))
+
+head(pheatmap_annotation)
+
+pheatmap_annotation_n <- pheatmap_annotation %>%
+  dplyr::rename(all_of(setNames(GO_lookup$term_id, GO_lookup$term_name)))
+head(pheatmap_annotation_n, 20)
+```
+
+Save the annotation
+
+```{r}
+lipid_genes_log2_FC1_padj_0.01 <- lipid_DEGs %>%
+  filter(abs(log2FoldChange) > 1, padj < 0.01) %>%
+  arrange(padj) %>%
+  relocate(gene_symbol) %>%
+  left_join(
+    pheatmap_annotation_n %>%
+      rownames_to_column("gene_symbol"),
+    by = "gene_symbol"
+  )
+lipid_genes_log2_FC1_padj_0.01 %>%
+  dplyr::select(gene_symbol, all_of(colnames(pheatmap_annotation_n))) %>%
+  write_csv(here(output_dir, "GO_terms_annotation.csv"))
+```
+
+#### Supplementary Table 3
+
+Save the differentially expressed lipid-related gene list as supplementary file.
+Also save the matching normalized counts values.
+
+```{r}
+lipid_genes_log2_FC1_padj_0.01 %>%
+  dplyr::select(gene_symbol) %>%
+  left_join(all_counts_norm_log2, by = "gene_symbol") %>%
+  write_csv(here(output_dir, "lipid_genes_log2_FC1_padj_0.01.csv"))
+
+write_csv(
+  lipid_genes_log2_FC1_padj_0.01,
+  here(output_dir, "Supplementary_Table_3_lipid_DEGs.csv")
+)
+here(output_dir, "Supplementary_Table_3_lipid_DEGs.xlsx")
+writexl::write_xlsx(
+  list(lipid_DEGs = lipid_genes_log2_FC1_padj_0.01),
+  path = here(output_dir, "Supplementary_Table_3_lipid_DEGs.xlsx"),
+  col_names = TRUE,
+  format_headers = TRUE
+)
+```
+
+### Figure 2
+
+#### Load data
+
+```{r}
+data_cell_lines_autoScaled <- read_csv(here(data_dir, "cell_lines_replicateAveraged_PQNNormalized_log2Transformed_autoScaled.csv"))
+data_cell_lines_autoScaled[1:6, 1:6]
+```
+
+```{r}
+calculate_lipid_class_average <- function(df, lipid_info, subclass = F) {
+  rename_first_col <- F
+  if (colnames(df)[1] != "Original_name") {
+    warning("The first column name is not Original_name. Are you sure this contains sample names?")
+    first_col_name <- colnames(df)[1]
+    rename_first_col <- T
+    colnames(df)[1] <- "Original_name"
+  }
+
+  if (subclass == F) {
+    df_average <- df %>%
+      pivot_longer(!Original_name, names_to = "internal_identifiers", values_to = "value") %>%
+      left_join(dplyr::select(lipid_info, internal_identifiers, class), by = "internal_identifiers") %>%
+      group_by(Original_name, class) %>%
+      summarise(
+        class_mean = mean(value),
+        class_sd = sd(value)
+      ) %>%
+      ungroup()
+  } else {
+    df_average <- df %>%
+      pivot_longer(!Original_name, names_to = "internal_identifiers", values_to = "value") %>%
+      left_join(dplyr::select(lipid_info, internal_identifiers, subclass), by = "internal_identifiers") %>%
+      group_by(Original_name, subclass) %>%
+      summarise(
+        subclass_mean = mean(value),
+        subclass_sd = sd(value)
+      ) %>%
+      ungroup()
+  }
+
+  if (rename_first_col) colnames(df_average)[1] <- first_col_name
+
+  return(df_average)
+}
+
+lipid_class_averages_long <- data_cell_lines_autoScaled %>%
+  calculate_lipid_class_average(lipid_info, subclass = T)
+
+dim(lipid_class_averages_long)
+head(lipid_class_averages_long)
+
+lipid_class_averages <- lipid_class_averages_long %>%
+  dplyr::select(-subclass_sd) %>%
+  pivot_wider(id_cols = group, names_from = subclass, values_from = subclass_mean) %>%
+  column_to_rownames("group")
+
+
+class_average_correlations <- lipid_class_averages %>%
+  cor() %>%
+  data.frame()
+
+colnames(class_average_correlations) <- rownames(class_average_correlations)
+
+head(class_average_correlations)
+
+class_average_correlations %>%
+  rownames_to_column("lipid") %>%
+  write_csv(here(output_dir, "lipid_class_average_correlations_after_SL_normalization.csv"))
+```
+
+#### Principal component analysis
+
+```{r}
+pca_lipid_classes <- lipid_class_averages %>%
+  mixOmics::pca(scale = F, ncomp = 4)
+
+PCs <- data.frame(pca_lipid_classes$variates$X) %>%
+  rownames_to_column("group") %>%
+  left_join(
+    metadata %>%
+      dplyr::select(group, Morphology, classification, Subtype, MigrationSpeed, ProliferationRate),
+    by = "group"
+  )
+
+loadings <- pca_lipid_classes$loadings$X %>%
+  data.frame() %>%
+  rownames_to_column("lipid_class")
+
+write_csv(PCs, here(output_dir, "PCA_variates_lipid_classes.csv"))
+save(pca_lipid_classes, file = here(output_dir, "PCA_lipid_classes.RData"))
+write_csv(loadings, here(output_dir, "PCA_loadings_lipid_classes.csv"))
+```
+
+Correlate metadata and principal components using spearman correlations
+
+Using a tip from https://www.biostars.org/p/9527172/ for binarizing categorical variables.
+
+```{r}
+metadata_names <- data.frame(
+  metadata = c(
+    "Epithelial-like", "Mesenchymal-like", "Round", "Suspension", "Unknown",
+    "NonTNBC", "TNBC",
+    "BasalA", "BasalB", "Luminal",
+    "MigrationSpeed", "ProliferationRate", "EMT_score"
+  ),
+  metadata_name = c(
+    "Epithelial", "Mesenchymal", "Round", "Suspension", "Unknown",
+    "HR+", "TNBC",
+    "Basal A", "Basal B", "Luminal",
+    "Migration", "Proliferation", "EMT score"
+  ),
+  category = c(
+    rep("Morphology", 5),
+    rep("Classification", 2),
+    rep("Subtype", 3),
+    rep("", 3)
+  )
+)
+
+vector_to_binary_df <- function(vec) {
+  df <- data.frame(samples = 1:length(vec), vals = vec) %>%
+    pivot_longer(!samples) %>%
+    pivot_wider(names_from = c(name, value), values_fn = length, values_fill = 0) %>%
+    dplyr::select(-samples) %>%
+    rename_with(~ str_remove(.x, "vals_"))
+  return(df)
+}
+
+# Binarize all categorical variables
+heatmap_metadata_data <- bind_cols(
+  PCs,
+  vector_to_binary_df(PCs$Morphology),
+  vector_to_binary_df(PCs$classification),
+  vector_to_binary_df(PCs$Subtype)
+) %>%
+  dplyr::select(-Morphology, -classification, -Subtype) %>%
+  column_to_rownames("group") %>%
+  cor(method = "spearman", use = "pairwise.complete.obs") %>%
+  data.frame() %>%
+  dplyr::select(PC1, PC2, PC3, PC4) %>%
+  rownames_to_column("metadata") %>%
+  filter(!metadata %in% c("PC1", "PC2", "PC3", "PC4")) %>%
+  left_join(metadata_names, by = "metadata") %>%
+  relocate(metadata_name) %>%
+  dplyr::select(-metadata) %>%
+  arrange(category)
+
+heatmap_metadata_data %>%
+  arrange(PC1) %>%
+  head()
+
+write_csv(heatmap_metadata_data, here(output_dir, "heatmap_metadata_data.csv"))
+```
+
+```{r}
+lipid_class_averages_long %>%
+  write_csv(here(output_dir, "lipid_class_averages_long_after_SL_normalization.csv"))
+lipid_class_averages %>%
+  rownames_to_column("cell_line") %>%
+  write_csv(here(output_dir, "lipid_class_averages_after_SL_normalization.csv"))
+```
+
+#### Correlate gene expression with principal components
+
+Only for cell lines that have matching transcriptome data.
+
+```{r}
+column_info <- PCs %>%
+  dplyr::select(group, PC1, PC2, PC3, PC4) %>%
+  filter(group %in% colnames(all_counts))
+
+## order of the metadata file has to be the same as the count file. Check if this is true:
+all_counts <- dplyr::select(all_counts, all_of(column_info$group))
+stopifnot(identical(column_info$group, colnames(all_counts)))
+
+run_deseq2 <- function(PC_name) {
+  # Run DESeq2 with principal component value as design.
+  dds <- DESeqDataSetFromMatrix(
+    countData = all_counts,
+    colData = column_info,
+    design = as.formula(str_glue("~{PC_name}"))
+  )
+  dds <- DESeq(dds)
+
+  # Add spearman correlations between gene expression and principal component
+  gene_expression_correlations <- data.frame(
+    col = apply(all_counts, 1, function(x) cor(x, column_info[[PC_name]], method = "spearman"))
+  ) %>%
+    dplyr::rename(!!str_glue("rs_{PC_name}") := col) %>%
+    rownames_to_column("EnsemblID")
+
+  # Format results and add gene name information
+  results_df <- results(dds) %>%
+    data.frame() %>%
+    arrange(padj) %>%
+    rownames_to_column("EnsemblID") %>%
+    left_join(
+      dplyr::select(
+        gene_identifier_table, Ensembl_gene_ID, gene_symbol,
+        NCBI_Gene_ID, HGNC_ID, gene_name
+      ),
+      by = c("EnsemblID" = "Ensembl_gene_ID")
+    ) %>%
+    left_join(gene_expression_correlations, by = "EnsemblID")
+  return(results_df)
+}
+
+genes_matching_PC1 <- run_deseq2("PC1")
+dim(genes_matching_PC1)
+head(genes_matching_PC1)
+
+genes_matching_PC2 <- run_deseq2("PC2")
+dim(genes_matching_PC2)
+head(genes_matching_PC2)
+
+write_csv(genes_matching_PC1, here(output_dir, "genes_matching_PC1.csv"))
+write_csv(genes_matching_PC2, here(output_dir, "genes_matching_PC2.csv"))
+```
+
+
+### Figure 3
+
+Calculate an ANOVA per lipid class between basal A, basal B, and luminal cell lines.
+
+```{r}
+nr_classes <- length(unique(lipid_class_averages_long$subclass))
+anova_info_lipid_class <- data.frame(
+  subclass = unique(lipid_class_averages_long$subclass),
+  pval_anova = rep(1, nr_classes),
+  adj.r.squared = rep(0, nr_classes)
+) %>% column_to_rownames("subclass")
+for (sub_class in unique(lipid_class_averages_long$subclass)) {
+  print(sub_class)
+  df_subclass <- filter(lipid_class_averages_long, subclass == sub_class) %>%
+    left_join(
+      dplyr::select(metadata, group, Subtype) %>% unique(),
+      by = "group"
+    ) %>%
+    dplyr::select(group, subclass_mean, Subtype)
+  result <- lm(subclass_mean ~ Subtype, data = df_subclass)
+  result_summary <- summary(result)
+  print(result_summary)
+
+  # Store adjusted Rsquared of the fit
+  anova_info_lipid_class[sub_class, "adj.r.squared"] <- result_summary$adj.r.squared
+
+  # Store pvalue related to subtypes
+  result_anova <- anova(result)
+  anova_info_lipid_class[sub_class, "pval_anova"] <- result_anova$`Pr(>F)`[[1]]
+}
+
+## Add multiple testing correction
+anova_info_lipid_class$padj <- p.adjust(anova_info_lipid_class$pval_anova, method = "BH")
+anova_info_lipid_class$padj_bonferroni <- p.adjust(anova_info_lipid_class$pval_anova, method = "bonferroni")
+anova_info_lipid_class %>%
+  arrange(padj) %>%
+  mutate(across(adj.r.squared, ~ round(., 2))) %>%
+  mutate(across(matches("pval|padj"), ~ round(., 4))) %>%
+  head(n = 22)
+
+anova_info_lipid_class %>%
+  rownames_to_column("subclass") %>%
+  arrange(padj) %>%
+  write_csv(here(output_dir, "anova_results_lipid_class_and_Subtype.csv"))
+```
+
+### Figure 4
+
+#### Load data
+
+```{r}
+data_cell_lines_notScaled <- read_csv(here(data_dir, "cell_lines_replicateAveraged_PQNNormalized_log2Transformed_notScaled.csv"))
+```
+
+#### Figure 4A-C
+
+```{r}
+## Filter to keep only cell lines in the lipidomics study for which we have proliferation rates
+proliferation_metadata <- metadata %>%
+  dplyr::select(group, Morphology, ProliferationRate) %>%
+  distinct() %>%
+  filter(group %in% data_cell_lines_notScaled$group) %>%
+  filter(!is.na(ProliferationRate)) %>%
+  arrange(group) %>%
+  filter(Morphology %in% c("Epithelial-like", "Mesenchymal-like"))
+dim(proliferation_metadata)
+
+# Create a design object
+design_morphology_prol <- model.matrix(
+  ~ 0 + proliferation_metadata$Morphology + proliferation_metadata$ProliferationRate +
+    proliferation_metadata$Morphology:proliferation_metadata$ProliferationRate
+)
+
+rownames(design_morphology_prol) <- proliferation_metadata$group
+colnames(design_morphology_prol) <- str_replace_all(colnames(design_morphology_prol), "proliferation_metadata\\$", "")
+colnames(design_morphology_prol) <- str_replace_all(colnames(design_morphology_prol), "Morphology", "")
+colnames(design_morphology_prol) <- str_replace_all(colnames(design_morphology_prol), "-like", "")
+colnames(design_morphology_prol) <- str_replace_all(colnames(design_morphology_prol), ":", ".") # needed for contrast fits
+head(design_morphology_prol)
+
+# Keep only cell lines for which we have proliferation rates
+dataset <- data_cell_lines_notScaled %>%
+  filter(group %in% proliferation_metadata$group) %>%
+  column_to_rownames("group")
+dim(dataset)
+dataset[1:5, 1:5]
+stopifnot(all(proliferation_metadata$group == rownames(dataset)))
+
+# Fit the linear model using the LIMMA package
+fit <- lmFit(t(dataset), design_morphology_prol)
+fit <- eBayes(fit)
+
+## Look at morphology effect
+cm <- makeContrasts(
+  Mesenchymal_proliferation = ProliferationRate + Mesenchymal.ProliferationRate,
+  Epithelial_proliferation = ProliferationRate,
+  Difference_ME = Mesenchymal - Epithelial,
+  levels = design_morphology_prol
+)
+cm
+fit_morphologies <- contrasts.fit(fit, cm)
+fit_morphologies <- eBayes(fit_morphologies)
+
+(all_contrasts <- colnames(cm))
+names(all_contrasts) <- colnames(cm)
+
+# Add metadata on lipid names and extract statistics for each contrast in the design
+contrasts_lipids <- lapply(all_contrasts, function(x) {
+  topTable(fit_morphologies, coef = x, n = Inf) %>%
+    rownames_to_column("internal_identifiers") %>%
+    left_join(lipid_info, by = "internal_identifiers") %>%
+    arrange(P.Value)
+})
+
+head(contrasts_lipids$Mesenchymal_proliferation)
+
+decide_direction <- function(logFC) {
+  if (logFC < 0) {
+    return("neg")
+  }
+  if (logFC > 0) {
+    return("pos")
+  }
+  stop("something wrong")
+}
+
+decide_significance <- function(P.Value, adj.P.Val, logFC,
+                                p_cutoff = 0.05, FDR_cutoff = 0.1) {
+  direction <- decide_direction(logFC)
+  if (adj.P.Val < FDR_cutoff) {
+    return(str_c("sig ", direction))
+  } else if (P.Value < p_cutoff) {
+    return(str_c("almost sig ", direction))
+  } else {
+    return("not sig")
+  }
+  stop("Something wrong")
+}
+
+proliferation_lipids <- inner_join(
+  dplyr::select(
+    contrasts_lipids$Mesenchymal_proliferation,
+    internal_identifiers, identifiers, subclass, logFC, P.Value, adj.P.Val
+  ) %>%
+    dplyr::rename(coefficient_prol = logFC),
+  dplyr::select(
+    contrasts_lipids$Epithelial_proliferation,
+    internal_identifiers, identifiers, logFC, P.Value, adj.P.Val
+  ) %>%
+    dplyr::rename(coefficient_prol = logFC),
+  by = c("internal_identifiers", "identifiers"), suffix = c("_M", "_E")
+) %>%
+  rowwise() %>%
+  mutate(color_FDR = decide_significance(P.Value_E, adj.P.Val_E, coefficient_prol_E,
+    p_cutoff = 0.05, FDR_cutoff = 0.1
+  ))
+
+head(proliferation_lipids)
+```
+
+#### Supplementary Table 4
+
+```{r}
+sheet1 <- metadata
+sheet1 %>%
+  write_csv(here(output_dir, "Supplementary_Table_4_sample_metadata.csv"))
+
+sheet2 <- lipid_info %>%
+  dplyr::select(-internal_identifiers) %>%
+  relocate(class, subclass, .after = "total_chain_length")
+sheet2 %>%
+  write_csv(here(output_dir, "Supplementary_Table_4_lipid_metadata.csv"))
+
+sheet3 <- data_cell_lines_notScaled %>%
+  pivot_longer(!group, names_to = "internal_identifiers", values_to = "value") %>%
+  pivot_wider(id_cols = internal_identifiers, names_from = group, values_from = value) %>%
+  left_join(dplyr::select(lipid_info, internal_identifiers, identifiers, subclass, database_identifier),
+    by = "internal_identifiers"
+  ) %>%
+  relocate(identifiers, subclass, database_identifier) %>%
+  dplyr::select(-internal_identifiers)
+sheet3 %>%
+  write_csv(here(output_dir, "Supplementary_Table_4_normalized_lipids.csv"))
+
+sheet4 <- proliferation_lipids %>%
+  left_join(dplyr::select(lipid_info, internal_identifiers, database_identifier),
+    by = "internal_identifiers"
+  ) %>%
+  relocate(identifiers, subclass) %>%
+  dplyr::select(-internal_identifiers)
+sheet4 %>%
+  write_csv(here(output_dir, "Supplementary_Table_4_lipid_proliferation.csv"))
+
+here(output_dir, "Supplementary_Table_4.xlsx")
+writexl::write_xlsx(
+  list(
+    sample_metadata = sheet1, lipid_metadata = sheet2,
+    normalized_lipids = sheet3, lipid_proliferation = sheet4
+  ),
+  path = here(output_dir, "Supplementary_Table_4.xlsx"),
+  col_names = TRUE,
+  format_headers = TRUE
+)
+```
+
+#### Odds ratios and examples
+
+Print statistics for the manuscript
+
+```{r}
+str_glue("Total nr of lipids: {nrow(proliferation_lipids)}")
+str_glue("Total nr of lipids with epithelial FDR < 0.1: {nrow(filter(proliferation_lipids, adj.P.Val_E < 0.1))}")
+str_glue("Total nr of lipids with mesenchymal FDR < 0.1: {nrow(filter(proliferation_lipids, adj.P.Val_M < 0.1))}")
+```
+
+Calculate odds ratios of side chains in the list of significantly associated lipids.
+First, look at multiple properties and then check the properties that look of interest.
+
+Check if a class as a whole is overrepresented in the list of significant hits.
+
+Note that a low conditional odds ratio means "less than expected".
+
+```{r}
+proliferation_lipids_E <- contrasts_lipids$Epithelial_proliferation %>%
+  mutate(direction = ifelse(logFC >= 0, "faster", "slower")) %>%
+  mutate(subclass = factor(subclass))
+
+proliferation_lipids_E %>%
+  calculate_column_overrepresentations("subclass", direction = "faster", adj.P.Val = 0.1)
+
+proliferation_lipids_E %>%
+  calculate_column_overrepresentations("subclass", direction = "slower", adj.P.Val = 0.1)
+```
+
+Check for specific side chains
+
+```{r}
+# Subset of PUFA species and odd-chain fatty acids in slower-proliferating cells. And MUFA 20:1
+for (pattern in c("15", "17", "20.3", "20.4", "20.5", "22.5", "22.6", "20.1")) {
+  print(str_glue("hits for FA {pattern}"))
+  contains_pattern <- count_pattern_in_limma_result(proliferation_lipids_E, pattern, "slower", adj.P.Val = 0.1)
+  print(contains_pattern)
+  contains_pattern <- calc_overrepresentation(contains_pattern)
+  print(str_glue("FA {pattern} overrepresentation {round(contains_pattern$conditional_odds_ratio, 2)} ({round(contains_pattern$conditional_odds_ratio, 1)}) with p {round(contains_pattern$p_value_fisher, 3)}"))
+}
+
+# MUFA in faster-proliferating cells. And the previously mentioned PUFA and odd-chain FA.
+for (pattern in c("15", "17", "20.3", "20.4", "20.5", "22.5", "22.6", "20.1")) {
+  print(str_glue("hits for FA {pattern}"))
+  contains_pattern <- count_pattern_in_limma_result(proliferation_lipids_E, pattern, "faster", adj.P.Val = 0.1)
+  print(contains_pattern)
+  contains_pattern <- calc_overrepresentation(contains_pattern)
+  print(str_glue("FA {pattern} overrepresentation {round(contains_pattern$conditional_odds_ratio, 2)} ({round(contains_pattern$conditional_odds_ratio, 1)}) with p {round(contains_pattern$p_value_fisher, 3)}"))
+}
+```
+
+Examples mentioned in the manuscript
+
+```{r}
+proliferation_lipids_E %>%
+  filter(identifiers %in% c(
+    "PI 18:1_20:1", "PI 18:0_20:1", "PI 16:0_20:1", "PI 18:0_18:1",
+    "PI 18:1_18:1",
+    "PI 16:1_18:0", "16:0_18:1",
+    "PI 18:0_18:3", "PI 15:0_22:4", "PI 17:0_20:3", "PI 17:0_20:4",
+    "PI18_0:20:3", "PI 18:0_20:4",
+    "LPI 17:0", "LPI 20:4", "LPI 20:3"
+  )) %>%
+  dplyr::select(identifiers, logFC, adj.P.Val) %>%
+  mutate(
+    adj.P.Val = round(adj.P.Val, 3),
+    logFC = round(logFC, 2)
+  )
+```
+
+### Figure 5
+
+#### Load data
+
+For this manuscript we are using a dataset with and without treatment with a 2-Deoxy-D-glucose inhibitor. 
+For this manuscript we only use control samples, with no drug added. This is why the dataset is called "treatment_2DG".
+
+```{r}
+data_treatment_2DG <- read_csv(here(data_dir, "data_treatment_2DG_log2Transformed_autoScaled.csv"))
+data_treatment_2DG_t <- read_csv(here(data_dir, "data_treatment_2DG_t_log2Transformed_notScaled.csv")) %>%
+  column_to_rownames("internal_identifiers")
+metadata_timecourse <- read_csv(here(data_dir, "metadata_timecourse.csv"))
+```
+
+#### Figure 5A
+
+Calculate lipid class averages. 
+For each replicate and cell line, scale the changes of the class average to T0=0.
+
+```{r}
+lipid_class_averages_long <- data_treatment_2DG %>%
+  calculate_lipid_class_average(lipid_info, subclass = T)
+
+head(metadata_timecourse)
+duplicated_metadata <- duplicate_control_T0_metadata(metadata_timecourse)
+
+average_data_treatment_2DG <- lipid_class_averages_long %>%
+  duplicate_control_T0_samples_long() %>%
+  left_join(duplicated_metadata, by = "Original_name") %>%
+  mutate(
+    Subject = str_glue("{cell_line}_{biological_replicate}_{Treatment}"),
+    sample = str_glue("{cell_line}_{biological_replicate}")
+  ) ->
+lipid_class_averages_over_time
+
+lipid_class_averages_over_time %>%
+  filter(Treatment == "ctrl") %>%
+  # Calculate average for all cell lines and replicates
+  group_by(cell_line, Treatment, Time, subclass) %>%
+  summarise(
+    subclass_sd = sd(subclass_mean),
+    subclass_mean = mean(subclass_mean)
+  ) %>%
+  # Scale to set T0 as 0
+  group_by(cell_line, subclass) %>%
+  group_modify(scale_lipid_to_T0is0,
+    lipid_column = "subclass_mean",
+    amount_of_controls = 2
+  ) %>%
+  mutate(Subject = str_c(cell_line, Treatment)) -> lipid_class_averages_over_time
+
+write_csv(lipid_class_averages_over_time, here(output_dir, "lipid_class_averages_scaledT0_over_time.csv"))
+here(output_dir, "lipid_class_averages_over_time.csv")
+```
+
+#### Figure 5BCF
+
+Calculate differences in lipid abundance over time. 
+
+Part of the code for the design matrix is adapted from the tutorial of [RNAseq123](https://bioconductor.org/packages/release/workflows/vignettes/RNAseq123/inst/doc/designmatrices.html#studies-with-covariates-1) [DOI:10.18129/B9.bioc.RNAseq123](https://doi.org/doi:10.18129/B9.bioc.RNAseq123).
+
+```{r}
+## Create design formula
+design_df <- metadata_timecourse %>%
+  dplyr::select(Original_name, cell_line, Treatment, biological_replicate, Time, Subject) %>%
+  mutate(Treatment_group = factor(str_c("t", Treatment, "_", Time, sep = ""),
+    levels = c("tctrl_0", "tctrl_6", "tctrl_24", "tctrl_48", "t2DG_6", "t2DG_24", "t2DG_48")
+  ))
+head(design_df)
+design_withcell <- model.matrix(~ 0 + design_df$Treatment_group + design_df$cell_line) %>%
+  as.data.frame() %>%
+  rename_with(function(x) str_remove(x, "design_df\\$Treatment_group")) %>%
+  rename_with(function(x) str_replace(x, "tctrl", "ctrl")) %>%
+  rename_with(function(x) str_remove(x, "design_df\\$cell_line")) %>%
+  rename_with(function(x) str_remove_all(x, "-")) %>%
+  as.matrix()
+
+rownames(design_withcell) <- design_df$Original_name
+colnames(design_withcell)
+
+## Rename interaction term with a dot because the : gives errors later on
+colnames(design_withcell) <- str_replace(colnames(design_withcell), ":", ".")
+
+stopifnot(colnames(data_treatment_2DG_t) == design_df$Original_name)
+corfit_withcell <- duplicateCorrelation(data_treatment_2DG_t, design_withcell, block = design_df$Subject)
+corfit_withcell$consensus
+fit_obj_with_cell_line <- lmFit(
+  object = data_treatment_2DG_t, design = design_withcell,
+  block = design_df$Subject, correlation = corfit_withcell$consensus
+)
+fit_obj_with_cell_line <- eBayes(fit_obj_with_cell_line)
+colnames(fit_obj_with_cell_line)
+
+## Look at treatment and time effects
+cm <- makeContrasts(
+  treatment_diff_6h = t2DG_6 - ctrl_6,
+  treatment_diff_24h = t2DG_24 - ctrl_24,
+  treatment_diff_48h = t2DG_48 - ctrl_48,
+  time_diff_6_0 = ctrl_6 - ctrl_0,
+  time_diff_24_0 = ctrl_24 - ctrl_0,
+  time_diff_48_0 = ctrl_48 - ctrl_0,
+  levels = design_withcell
+)
+cm
+fit2 <- contrasts.fit(fit_obj_with_cell_line, cm)
+fit2 <- eBayes(fit2)
+
+lipid_48h_differences <- topTable(fit2, coef = "time_diff_48_0", n = Inf) %>%
+  rownames_to_column("internal_identifiers") %>%
+  left_join(
+    dplyr::select(
+      lipid_info, internal_identifiers, identifiers, subclass,
+      total_chain_length, saturation, database_identifier
+    ),
+    by = "internal_identifiers"
+  ) %>%
+  mutate(subclass = ifelse(subclass == "unidentified sphingolipid", "unidentified", subclass)) %>%
+  rowwise() %>%
+  mutate(color_FDR = decide_significance(P.Value, adj.P.Val, logFC,
+    p_cutoff = 0.05, FDR_cutoff = 0.1
+  ))
+dim(lipid_48h_differences)
+head(lipid_48h_differences)
+```
+
+#### Supplementary Table 5
+
+```{r}
+sheet1 <- metadata_timecourse
+sheet1 %>%
+  write_csv(here(output_dir, "Supplementary_Table_5_sample_metadata.csv"))
+
+sheet2 <- lipid_info %>%
+  dplyr::select(-internal_identifiers) %>%
+  relocate(class, subclass, .after = "total_chain_length")
+sheet2 %>%
+  write_csv(here(output_dir, "Supplementary_Table_5_lipid_metadata.csv"))
+
+sheet3 <- data_treatment_2DG_t %>%
+  rownames_to_column("internal_identifiers") %>%
+  left_join(dplyr::select(lipid_info, internal_identifiers, identifiers, subclass, database_identifier),
+    by = "internal_identifiers"
+  ) %>%
+  relocate(identifiers, subclass, database_identifier) %>%
+  dplyr::select(-internal_identifiers)
+sheet3 %>%
+  write_csv(here(output_dir, "Supplementary_Table_5_normalized_lipids.csv"))
+
+sheet4 <- lipid_48h_differences %>%
+  dplyr::select(
+    identifiers, subclass, total_chain_length, saturation,
+    logFC, adj.P.Val, database_identifier, color_FDR
+  )
+sheet4 %>%
+  write_csv(here(output_dir, "Supplementary_Table_5_lipid_time_differences_48h.csv"))
+
+here(output_dir, "Supplementary_Table_5.xlsx")
+writexl::write_xlsx(
+  list(
+    sample_metadata = sheet1, lipid_metadata = sheet2,
+    normalized_lipids = sheet3, lipid_time_differences_48h = sheet4
+  ),
+  path = here(output_dir, "Supplementary_Table_5.xlsx"),
+  col_names = TRUE,
+  format_headers = TRUE
+)
+```
+
+#### Figure 5D
+
+```{r}
+all_replicates_lipidtox <- read_csv(here(data_dir, "lipidtox_quantification_all_replicates.csv"))
+# no normalization
+all_replicates_mean_lipidtox <- all_replicates_lipidtox %>%
+  group_by(cell_line, time, replicate) %>%
+  summarize(
+    mean_lipidtox = mean(Intensity_MeanIntensity_lipidtox),
+    sd_lipidtox = sd(Intensity_MeanIntensity_lipidtox)
+  ) %>%
+  ungroup()
+
+# Scale to T0 by adding the matching T0 sample for each replicate.
+all_replicates_mean_lipidtox_scaled <- left_join(
+  all_replicates_mean_lipidtox,
+  all_replicates_mean_lipidtox %>%
+    filter(time == 0) %>%
+    dplyr::select(cell_line, replicate, mean_lipidtox) %>%
+    dplyr::rename(mean_lipidtox_T0 = mean_lipidtox),
+  by = c("cell_line", "replicate")
+) %>%
+  mutate(scaled_lipidtox = mean_lipidtox / mean_lipidtox_T0)
+
+# Average per cell line
+scaled_lipidtox_averages <- all_replicates_mean_lipidtox_scaled %>%
+  group_by(cell_line, time) %>%
+  summarize(
+    mean_scaled_lipidtox = mean(scaled_lipidtox),
+    sd_lipidtox = sd(scaled_lipidtox)
+  ) %>%
+  ungroup() %>%
+  dplyr::rename(Time = time) %>%
+  mutate(log2FC = log2(mean_scaled_lipidtox))
+head(scaled_lipidtox_averages)
+
+# Save. This dataset contains averaged lipidtox intensities for three cell lines.
+scaled_lipidtox_averages %>%
+  write_csv(here(output_dir, "cell_line_averaged_lipidtox.csv"))
+```
+#### Figure 5E
+
+```{r}
+file.copy(
+  here(data_dir, "lipidtox_image.tiff"),
+  here(output_dir, "lipidtox_image.tiff")
+)
+```
+
+## Supplementary Figures
+
+### Supplementary Figure 1
+
+```{r}
+file.copy(
+  here(data_dir, "unknown_sphingolipid_example.xlsx"),
+  output_dir
+)
+```
+
+### Supplementary Figure 2
+
+Data is created together with data for Figure 3.
+
+### Supplementary Figure 3
+
+```{r}
+calculate_SFA_MUFA_PUFA <- function(df_cell_lines, type_calculation) {
+  data_cell_lines_t <- pivot_longer(df_cell_lines, !group, names_to = "internal_identifiers") %>%
+    pivot_wider(id_cols = internal_identifiers, names_from = "group", values_from = "value")
+
+  print(dim(data_cell_lines_t))
+  lipid_info %>%
+    dplyr::select(internal_identifiers, subclass, saturation) %>%
+    left_join(data_cell_lines_t, by = "internal_identifiers") %>%
+    dplyr::select(-internal_identifiers) %>%
+    group_by(subclass, saturation) -> df_cell_lines_saturation
+  if (type_calculation == "sum") {
+    df_cell_lines_saturation %>%
+      summarize(across(everything(), sum)) %>%
+      ungroup() -> df_cell_lines_saturation
+  } else if (type_calculation == "mean") {
+    df_cell_lines_saturation %>%
+      summarize(across(everything(), mean)) %>%
+      ungroup() -> df_cell_lines_saturation
+  } else if (type_calculation == "percentage") {
+    totals <- df_cell_lines_saturation %>%
+      ungroup() %>%
+      group_by(subclass) %>%
+      dplyr::select(-saturation) %>%
+      summarize(across(everything(), sum)) %>%
+      ungroup()
+    saturations <- df_cell_lines_saturation %>%
+      summarize(across(everything(), sum)) %>%
+      ungroup()
+    df_cell_lines_saturation <- left_join(
+      pivot_longer(saturations, !c(subclass, saturation), names_to = "cell_line", values_to = "saturation_sum"),
+      pivot_longer(totals, !subclass, names_to = "cell_line", values_to = "totals_sum"),
+      by = c("subclass", "cell_line")
+    ) %>%
+      mutate(percentage = saturation_sum / totals_sum)
+  }
+  print(dim(df_cell_lines_saturation))
+  return(df_cell_lines_saturation)
+}
+```
+
+```{r}
+raw_cell_line_data <- read_csv(here(data_dir, "cell_lines_replicateAveraged_PQNNormalized_notTransformed_notScaled.csv"))
+raw_cell_line_data_saturation <- calculate_SFA_MUFA_PUFA(raw_cell_line_data, type_calculation = "percentage")
+
+raw_cell_line_data_saturation %>%
+  left_join(metadata, by = c("cell_line" = "group")) %>%
+  arrange(Morphology) %>%
+  mutate(cell_line = factor(cell_line, levels = pull(., cell_line) %>% unique())) %>%
+  filter(subclass %in% c("PE", "PS", "PI", "PC")) -> saturation_percentages
+
+write_csv(saturation_percentages, here(output_dir, "saturation_percentages.csv"))
+```
+
+## Additional information
+
+### GO database version
+
+```{r}
+org.Hs.eg.db
+```
+### Citation of versions
+
+```{r}
+knitr::write_bib(c(
+  .packages(),
+  "mixOmics"
+), here(output_dir, "packages_calculations.bib"))
+```
+
+### Session info
+
+```{r}
+sessionInfo()
+```

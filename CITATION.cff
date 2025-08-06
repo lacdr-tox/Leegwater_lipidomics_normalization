@@ -45,7 +45,6 @@ preferred-citation:
   identifiers: 
       - type: doi
         value: 10.1002/cem.3636
-  issue: 1
-  pages: e3636
+  start: e3636
   volume: 39
-  url: https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/cem.3636
+  url: https://doi.org/10.1002/cem.3636

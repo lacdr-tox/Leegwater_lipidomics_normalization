@@ -1,0 +1,26 @@
+[   1] [Images]
+  The goal: Quantification of lipid droplets in four breast cancer cell lines treated with DMSO or bosutinb. 
+  
+
+[   2] [Metadata]
+  We extract the replicate date, well, timepoint, the number behind the s and behind the w.
+
+[   3] [NamesAndTypes]
+  The NamesAndTypes module allows you to assign a meaningful name to each image by which other modules will refer to it.
+
+[   4] [Groups]
+  The Groups module optionally allows you to split your list of images into image subsets (groups) which will be processed independently of each other. Examples of groupings include screening batches, microtiter plates, time-lapse movies, etc.
+  
+  
+  Maybe consider using different plates or replicates to be analyzed separately?
+
+[   5] [IdentifyPrimaryObjects]
+  Identify the HOECHST-stained nuclei
+
+[   6] [IdentifySecondaryObjects]
+  Identify cells using nuclei. 
+
+[   7] [MeasureObjectIntensity]
+
+[   8] [ExportToSpreadsheet]
+  Export the output data in a csv file. 
