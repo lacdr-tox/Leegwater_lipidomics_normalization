@@ -10,13 +10,13 @@ authors:
     affiliation: Leiden University
     orcid: https://orcid.org/0000-0001-6551-6030
 title: "Code to normalize and interpret lipidome data in breast cancer cell lines."
-version: 1.2.1
-date-released: 2025-05-02
+version: 2.0.1
+date-released: 2025-08-06
 identifiers:
   - type: doi
     value: 10.5281/zenodo.10635384
 abstract: |-
-  Code to generate figures for: Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A. C., Zweemer, A. J. M., Le Dévédec, S. E., & Kindt, A. (2025). Normalization Strategies for Lipidome Data in Cell Line Panels. Journal of Chemometrics, 39(1), e3636. https://doi.org/10.1002/cem.3636 and Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes", by Leegwater, H. _et al._ (submitted).
+  Code to generate figures for: Leegwater, H., Zhang, Z., Zhang, X., Hankemeier, T., Harms, A. C., Zweemer, A. J. M., Le Dévédec, S. E., & Kindt, A. (2025). Normalization Strategies for Lipidome Data in Cell Line Panels. Journal of Chemometrics, 39(1), e3636. https://doi.org/10.1002/cem.3636 and Leegwater H., Zhang Z., Zhang X., Wang X., Hankemeier T., Zweemer A. J. M., van de Water B., Danen E., Hoekstra M., Harms A. C., Kindt A., Le Dévédec S. E. (2025). Distinct lipidomic profiles in breast cancer cell lines relate to proliferation and EMT phenotypes. Biochim Biophys Acta Mol Cell Biol Lipids. 2025 Aug 3:159679. https://doi.org/10.1016/j.bbalip.2025.159679. Epub ahead of print. PMID: 40763903.
 
 license: MIT
 
